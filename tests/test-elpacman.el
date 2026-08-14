@@ -600,6 +600,24 @@ the file with unbalanced parentheses."
                       :type 'elpacman-aborted)
         (should-not (package-installed-p (intern elpacman-test-package)))))))
 
+(ert-deftest elpacman-test-integration-install-aborts-on-missing-target ()
+  "If any named target is not found, install nothing and return 1.
+A valid package listed alongside an unknown one must not be installed:
+the whole transaction is aborted up front, in the manner of `pacman -S'."
+  (skip-unless (elpacman-test-integration-p))
+  (elpacman-test-with-sandbox
+    (let ((elpacman--assume-yes t)
+          (valid elpacman-test-package)
+          (bogus "elpacman-no-such-package-xyz"))
+      (let ((output (elpacman-test-with-output
+                      (package-refresh-contents)
+                      (should (equal (elpacman-cmd-install (list valid bogus)) 1)))))
+        ;; The unknown target is reported ...
+        (should (string-search "target not found" output))
+        (should (string-search bogus output))
+        ;; ... and nothing was installed, not even the valid package.
+        (should-not (package-installed-p (intern valid)))))))
+
 (ert-deftest elpacman-test-integration-delete-missing ()
   "Deleting a package that is not installed returns 1."
   (skip-unless (elpacman-test-integration-p))
