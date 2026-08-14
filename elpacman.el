@@ -291,13 +291,14 @@ Return non-nil immediately when `elpacman--assume-yes' is set.  When
 running interactively, read a line from the terminal and treat `y' or
 `yes' as agreement.  When not interactive and no affirmative was
 assumed, signal `elpacman-aborted', since proceeding without consent is
-unsafe.  The prompt is styled after `pacman', with a `:: ' prefix; the
-default remains negative, so a bare newline declines."
+unsafe.  The prompt is styled after `pacman', with a leading blank line
+and a `:: ' prefix; the default remains negative, so a bare newline
+declines."
   (cond
    (elpacman--assume-yes t)
    ((elpacman--interactive-p)
     (let ((answer (downcase (string-trim
-                             (read-string (format ":: %s [y/N] " prompt))))))
+                             (read-string (format "\n:: %s [y/N] " prompt))))))
       (member answer '("y" "yes"))))
    (t
     (signal 'elpacman-aborted
@@ -496,34 +497,45 @@ may be out of date."
           (push arg names)))))
     (setq names (nreverse names)
           vc-specs (nreverse vc-specs))
-    ;; Preview the resolved transaction for the archive packages,
-    ;; dependencies included, then ask for confirmation before touching
-    ;; anything.  Version-controlled packages are listed by their spec.
-    (elpacman--out "resolving dependencies...\n")
+    ;; Validate every named archive package up front.  If any target is
+    ;; neither installed nor available in the database, abort the whole
+    ;; transaction without prompting or installing anything, in the
+    ;; manner of `pacman -S'.
     (let* ((symbols (elpacman--intern-names names))
-           (new (seq-remove #'package-installed-p symbols))
-           (txn (elpacman--install-transaction new)))
-      (when (or txn vc-specs)
-        (elpacman--preview txn "Total Installed Size:"
-                           (apply #'+ (mapcar (lambda (d)
-                                                (elpacman--dir-size
-                                                 (package-desc-dir d)))
-                                              txn)))
+           (missing (seq-remove (lambda (name)
+                                  (or (package-installed-p name)
+                                      (elpacman--available-desc name)))
+                                symbols)))
+      (when missing
+        (dolist (name missing)
+          (elpacman--err "error: target not found: %s\n" name))
+        (cl-return-from elpacman-cmd-install 1))
+      ;; Preview the resolved transaction for the archive packages,
+      ;; dependencies included, then ask for confirmation before touching
+      ;; anything.  Version-controlled packages are listed by their spec.
+      (elpacman--out "resolving dependencies...\n")
+      (let* ((new (seq-remove #'package-installed-p symbols))
+             (txn (elpacman--install-transaction new)))
+        (when (or txn vc-specs)
+          (elpacman--preview txn "Total Installed Size:"
+                             (apply #'+ (mapcar (lambda (d)
+                                                  (elpacman--dir-size
+                                                   (package-desc-dir d)))
+                                                txn)))
+          (dolist (spec vc-specs)
+            (elpacman--out "  %s (from version control)\n" spec))
+          (unless (elpacman--confirm "Proceed with installation?")
+            (cl-return-from elpacman-cmd-install 0))))
+      (let ((total (+ (length vc-specs) (length symbols)))
+            (n 0))
         (dolist (spec vc-specs)
-          (elpacman--out "  %s (from version control)\n" spec))
-        (unless (elpacman--confirm "Proceed with installation?")
-          (cl-return-from elpacman-cmd-install 0))))
-    (let* ((symbols (elpacman--intern-names names))
-           (total (+ (length vc-specs) (length symbols)))
-           (n 0))
-      (dolist (spec vc-specs)
-        (setq n (1+ n))
-        (unless (elpacman--install-vc spec n total)
-          (setq status 1)))
-      (dolist (name symbols)
-        (setq n (1+ n))
-        (unless (elpacman--install-archive name n total)
-          (setq status 1))))
+          (setq n (1+ n))
+          (unless (elpacman--install-vc spec n total)
+            (setq status 1)))
+        (dolist (name symbols)
+          (setq n (1+ n))
+          (unless (elpacman--install-archive name n total)
+            (setq status 1)))))
     status))
 
 (defun elpacman--install-transaction (names)
