@@ -554,6 +554,25 @@ Both operations assume yes, so no confirmation prompt is issued."
         (should (equal (elpacman-cmd-delete (list elpacman-test-package)) 0))
         (should-not (package-installed-p (intern elpacman-test-package)))))))
 
+(ert-deftest elpacman-test-integration-install-pulls-dependencies ()
+  "Installing a package also installs its dependencies.
+`ace-window' depends on `avy'; installing the former must install the
+latter too, and the transaction preview must list more than one
+package."
+  (skip-unless (elpacman-test-integration-p))
+  (elpacman-test-with-sandbox
+    (let ((elpacman--assume-yes t))
+      (let ((output (elpacman-test-with-output
+                      (package-refresh-contents)
+                      (should (equal (elpacman-cmd-install '("ace-window")) 0)))))
+        ;; The dependency and the named package are both installed.
+        (should (package-installed-p 'avy))
+        (should (package-installed-p 'ace-window))
+        ;; The preview and progress reflect a multi-package transaction.
+        (should (string-search "Packages (2)" output))
+        (should (string-search "installing avy" output))
+        (should (string-search "installing ace-window" output))))))
+
 (ert-deftest elpacman-test-integration-delete-keeps-custom-file-valid ()
   "Deleting a package rewrites `custom-file' without corrupting it.
 This reproduces the scenario where `package-delete' saves the updated
