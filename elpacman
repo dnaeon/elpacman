@@ -57,13 +57,12 @@
 
 set -euo pipefail
 
-# Resolve the canonical path of this script, following any symbolic
-# links, so that the wrapper keeps working when it is symlinked into a
+# Resolve the directory of this script, following any symbolic links,
+# so that the wrapper keeps working when it is symlinked into a
 # directory on the user's PATH.  `readlink -f' is a GNU coreutils
 # feature; on macOS install coreutils (e.g. `brew install coreutils')
 # so that a GNU `readlink' is on the PATH.
-_SCRIPT_PATH="$( readlink -f -- "${BASH_SOURCE[0]}" )"
-_SCRIPT_DIR="$( dirname -- "${_SCRIPT_PATH}" )"
+_SCRIPT_DIR="$( dirname "$( readlink -f -- "${BASH_SOURCE[0]}" )" )"
 
 # The `elpacman.el' core to load, next to this script.
 _CORE="${_SCRIPT_DIR}/elpacman.el"
