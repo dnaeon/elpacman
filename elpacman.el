@@ -827,7 +827,10 @@ Return 0 on success, 1 when the package is unknown."
                      (if reqs
                          (mapconcat
                           (lambda (r)
-                            (format "%s %s" (car r)
+                            ;; `name>=version': the requirement is a
+                            ;; minimum version, so show the operator to
+                            ;; avoid reading it as an exact version.
+                            (format "%s>=%s" (car r)
                                     (package-version-join (cadr r))))
                           reqs "  ")
                        "None")))
