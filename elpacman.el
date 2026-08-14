@@ -532,17 +532,20 @@ may be out of date."
           (dolist (spec vc-specs)
             (elpacman--out "  %s (from version control)\n" spec))
           (unless (elpacman--confirm "Proceed with installation?")
-            (cl-return-from elpacman-cmd-install 0))))
-      (let ((total (+ (length vc-specs) (length symbols)))
-            (n 0))
-        (dolist (spec vc-specs)
-          (setq n (1+ n))
-          (unless (elpacman--install-vc spec n total)
-            (setq status 1)))
-        (dolist (name symbols)
-          (setq n (1+ n))
-          (unless (elpacman--install-archive name n total)
-            (setq status 1)))))
+            (cl-return-from elpacman-cmd-install 0)))
+        ;; Install every package in the resolved transaction -- the named
+        ;; packages and their dependencies alike -- so the `(N/TOTAL)'
+        ;; progress matches the preview above.
+        (let ((total (+ (length vc-specs) (length txn)))
+              (n 0))
+          (dolist (spec vc-specs)
+            (setq n (1+ n))
+            (unless (elpacman--install-vc spec n total)
+              (setq status 1)))
+          (dolist (desc txn)
+            (setq n (1+ n))
+            (unless (elpacman--install-desc desc n total)
+              (setq status 1))))))
     status))
 
 (defun elpacman--install-transaction (names)
@@ -562,29 +565,29 @@ and de-duplicated, so that the preview matches what will be installed."
             (push dep result)))))
     (nreverse result)))
 
-(defun elpacman--install-archive (name n total)
-  "Install the archive package NAME, a symbol.
-N and TOTAL position the package in the `(N/TOTAL)' progress line.
-Packages that are already installed are reported and skipped.  Return
+(defun elpacman--install-desc (desc n total)
+  "Install the archive package described by DESC.
+N and TOTAL position the package in the `(N/TOTAL)' progress line.  DESC
+is a `package-desc' from the resolved transaction.  A package that is
+already installed -- for example a dependency pulled in by an earlier
+package in the same transaction -- is reported and skipped.  Return
 non-nil on success, nil when the package could not be installed."
-  (cond
-   ((package-installed-p name)
-    (elpacman--out "warning: %s is already installed -- skipping\n" name)
-    t)
-   ((null (elpacman--available-desc name))
-    (elpacman--err "error: target not found: %s\n" name)
-    nil)
-   (t
-    (condition-case err
-        (progn
-          (elpacman--out "(%d/%d) installing %s\n" n total name)
-          (elpacman--with-progress (format "installing %s: " name)
-            (package-install name))
-          t)
-      (error
-       (elpacman--err "error: failed to install `%s': %s\n"
-                      name (error-message-string err))
-       nil)))))
+  (let ((name (package-desc-name desc)))
+    (cond
+     ((package-installed-p name)
+      (elpacman--out "(%d/%d) %s is up to date -- skipping\n" n total name)
+      t)
+     (t
+      (condition-case err
+          (progn
+            (elpacman--out "(%d/%d) installing %s\n" n total name)
+            (elpacman--with-progress (format "installing %s: " name)
+              (package-install-from-archive desc))
+            t)
+        (error
+         (elpacman--err "error: failed to install `%s': %s\n"
+                        name (error-message-string err))
+         nil))))))
 
 (defun elpacman--install-vc (spec n total)
   "Install a version-controlled package from SPEC.
