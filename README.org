@@ -171,7 +171,7 @@ and then ask for confirmation before doing anything, styled after =pacman=.
 
   Packages (2) magit-20260101.1->20260808.323  transient-0.7.0->0.9.0
 
-  :: Proceed with upgrade? [y/N]
+  :: Proceed with upgrade? [Y/n]
 #+end_src
 
 Pass =-y=, =--yes= or =--assume-yes= to skip the prompt, which is what
@@ -181,10 +181,6 @@ you want in scripts and CI.
   elpacman upgrade --yes
   elpacman install magit -y
 #+end_src
-
-Note that unlike =pacman=, whose prompts default to yes (=[Y/n]=), =elpacman=
-defaults to no (=[y/N]=): a bare newline declines, so a stray keypress never
-changes your packages.
 
 When =elpacman= is not attached to a terminal (for example in a pipeline) and no
 such option was given, it refuses to guess: it prints an error and exits without

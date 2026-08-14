@@ -295,18 +295,18 @@ wrapper detects it and exports the `ELPACMAN_TTY' environment variable."
 (defun elpacman--confirm (prompt)
   "Ask the user PROMPT and return non-nil when they agree.
 Return non-nil immediately when `elpacman--assume-yes' is set.  When
-running interactively, read a line from the terminal and treat `y' or
-`yes' as agreement.  When not interactive and no affirmative was
-assumed, signal `elpacman-aborted', since proceeding without consent is
-unsafe.  The prompt is styled after `pacman', with a leading blank line
-and a `:: ' prefix; the default remains negative, so a bare newline
-declines."
+running interactively, read a line from the terminal and, in the manner
+of `pacman', treat everything as agreement except an explicit `n' or
+`no'; a bare newline therefore proceeds.  When not interactive and no
+affirmative was assumed, signal `elpacman-aborted', since proceeding
+without consent is unsafe.  The prompt is styled after `pacman', with a
+leading blank line, a `:: ' prefix and a `[Y/n]' default."
   (cond
    (elpacman--assume-yes t)
    ((elpacman--interactive-p)
     (let ((answer (downcase (string-trim
-                             (read-string (format "\n:: %s [y/N] " prompt))))))
-      (member answer '("y" "yes"))))
+                             (read-string (format "\n:: %s [Y/n] " prompt))))))
+      (not (member answer '("n" "no")))))
    (t
     (signal 'elpacman-aborted
             (list "not running interactively; pass --yes to proceed")))))

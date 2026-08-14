@@ -348,11 +348,20 @@ were captured and redirected, corrupting the written file."
     (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "y")))
       (should (elpacman--confirm "Proceed?")))))
 
+(ert-deftest elpacman-test-confirm-interactive-default-yes ()
+  "A bare newline defaults to agreement, in the manner of pacman's [Y/n]."
+  (let ((elpacman--assume-yes nil)
+        (process-environment (cons "ELPACMAN_TTY=1" process-environment)))
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "")))
+      (should (elpacman--confirm "Proceed?")))))
+
 (ert-deftest elpacman-test-confirm-interactive-no ()
   "An interactive `n' answer is treated as refusal."
   (let ((elpacman--assume-yes nil)
         (process-environment (cons "ELPACMAN_TTY=1" process-environment)))
     (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "n")))
+      (should-not (elpacman--confirm "Proceed?")))
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "no")))
       (should-not (elpacman--confirm "Proceed?")))))
 
 ;;;; Unit tests: size helpers
