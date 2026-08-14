@@ -341,7 +341,9 @@ Return 0 when DIR is nil or does not exist."
 
 (defun elpacman-cmd-update (_args)
   "Refresh the local package database from the configured archives.
-ARGS are ignored.  This is the equivalent of `pacman -Sy'."
+ARGS are ignored.  This is the equivalent of `pacman -Sy'.  Return 0 on
+success; a failure to reach an archive is signalled and reported by the
+caller as a non-zero exit status."
   (elpacman--out ":: Synchronizing package databases...\n")
   (elpacman--with-progress "update: "
     (package-refresh-contents))
@@ -353,8 +355,13 @@ ARGS are ignored.  This is the equivalent of `pacman -Sy'."
   "Upgrade installed packages.
 When ARGS is empty every upgradeable package is upgraded.  Otherwise
 only the named packages in ARGS are upgraded.  Archive-based and
-VC-installed packages are both handled."
-  (package-refresh-contents)
+VC-installed packages are both handled.
+
+The local package database is not refreshed first; run `update' to
+synchronize it, in the manner of `pacman -Sy' before `pacman -Su'.
+
+Return 0 when every upgrade succeeded or the user declined, 1 when a
+named package is not installed or an upgrade failed."
   (if args
       (elpacman--upgrade-named (elpacman--intern-names args))
     (elpacman--upgrade-all)))
@@ -465,11 +472,13 @@ package to be installed via `package-vc-install'.  All remaining
 arguments are treated as archive package names.
 
 Return 0 when every package was installed or was already present, and
-1 when at least one package failed to install."
+1 when at least one package failed to install.
+
+The local package database is not refreshed first; run `update' when it
+may be out of date."
   (unless args
     (elpacman--err "error: install requires at least one package name\n")
     (cl-return-from elpacman-cmd-install 1))
-  (package-refresh-contents)
   (let ((vc-specs nil)
         (names nil)
         (rest args)
@@ -754,8 +763,10 @@ ARGS are ignored.  Return 0."
 
 (defun elpacman-cmd-outdated (_args)
   "List packages for which an upgrade is available.
-ARGS are ignored.  The database is refreshed first.  Return 0."
-  (package-refresh-contents)
+ARGS are ignored.  The local package database is not refreshed first;
+run `update' when it may be out of date.  Return 0 on success; an error
+while consulting the database is signalled and reported by the caller as
+a non-zero exit status."
   (let ((names (elpacman--upgradeable-names)))
     (if (null names)
         (elpacman--out "All packages are already up to date.\n")
@@ -812,7 +823,9 @@ satisfied by an installed package.  Return 0 when no problems are found,
 (defun elpacman-cmd-recompile (_args)
   "Recompile the byte-code of all installed packages.
 ARGS are ignored.  This is useful after upgrading Emacs itself, when the
-existing byte-code may no longer be valid.  Return 0."
+existing byte-code may no longer be valid.  Return 0 on success; a
+failure during recompilation is signalled and reported by the caller as
+a non-zero exit status."
   (elpacman--out "Recompiling installed packages:\n")
   (elpacman--with-progress "recompile: "
     (package-recompile-all))
