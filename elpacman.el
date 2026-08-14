@@ -520,8 +520,16 @@ may be out of date."
       ;; Preview the resolved transaction for the archive packages,
       ;; dependencies included, then ask for confirmation before touching
       ;; anything.  Version-controlled packages are listed by their spec.
+      ;;
+      ;; `package-install-upgrade-built-in' is bound to t for the whole
+      ;; operation so that a dependency requiring a newer version of a
+      ;; built-in package (such as `transient' or `compat') is satisfied
+      ;; by upgrading it, rather than failing.  The binding is dynamic
+      ;; and scoped to this command; it does not change the user's
+      ;; setting.
       (elpacman--out "resolving dependencies...\n")
-      (let* ((new (seq-remove #'package-installed-p symbols))
+      (let* ((package-install-upgrade-built-in t)
+             (new (seq-remove #'package-installed-p symbols))
              (txn (elpacman--install-transaction new)))
         (when (or txn vc-specs)
           (elpacman--preview txn "Total Installed Size:"
@@ -568,13 +576,18 @@ and de-duplicated, so that the preview matches what will be installed."
 (defun elpacman--install-desc (desc n total)
   "Install the archive package described by DESC.
 N and TOTAL position the package in the `(N/TOTAL)' progress line.  DESC
-is a `package-desc' from the resolved transaction.  A package that is
-already installed -- for example a dependency pulled in by an earlier
-package in the same transaction -- is reported and skipped.  Return
-non-nil on success, nil when the package could not be installed."
+is a `package-desc' from the resolved transaction.  A package whose
+installed version already satisfies DESC -- for example a dependency
+pulled in by an earlier package in the same transaction -- is reported
+and skipped.  Return non-nil on success, nil when the package could not
+be installed."
   (let ((name (package-desc-name desc)))
     (cond
-     ((package-installed-p name)
+     ;; Compare against DESC's version, not merely whether the package
+     ;; is present: a built-in package (such as `transient') reports as
+     ;; installed even when an older version than the transaction
+     ;; requires is the one in place.
+     ((package-installed-p name (package-desc-version desc))
       (elpacman--out "(%d/%d) %s is up to date -- skipping\n" n total name)
       t)
      (t
