@@ -503,14 +503,15 @@ argument is treated as a URL or specification for a version-controlled
 package to be installed via `package-vc-install'.  All remaining
 arguments are treated as archive package names.
 
-Return 0 when every package was installed or was already present, and
-1 when at least one package failed to install.
+Return 0 when every package was installed or was already present, 1
+when at least one package failed to install, and 2 on a usage error
+such as a missing package name.
 
 The local package database is not refreshed first; run `update' when it
 may be out of date."
   (unless args
     (elpacman--err "error: install requires at least one package name\n")
-    (cl-return-from elpacman-cmd-install 1))
+    (cl-return-from elpacman-cmd-install 2))
   (let ((vc-specs nil)
         (names nil)
         (rest args)
@@ -523,7 +524,7 @@ may be out of date."
           (if rest
               (push (pop rest) vc-specs)
             (elpacman--err "error: --vc requires a URL or specification\n")
-            (cl-return-from elpacman-cmd-install 1)))
+            (cl-return-from elpacman-cmd-install 2)))
          (t
           (push arg names)))))
     (setq names (nreverse names)
@@ -544,16 +545,12 @@ may be out of date."
       ;; Preview the resolved transaction for the archive packages,
       ;; dependencies included, then ask for confirmation before touching
       ;; anything.  Version-controlled packages are listed by their spec.
-      ;;
-      ;; `package-install-upgrade-built-in' is bound to t for the whole
-      ;; operation so that a dependency requiring a newer version of a
-      ;; built-in package (such as `transient' or `compat') is satisfied
-      ;; by upgrading it, rather than failing.  The binding is dynamic
-      ;; and scoped to this command; it does not change the user's
-      ;; setting.
+      ;; A dependency requiring a newer version of a built-in package
+      ;; (such as `transient' or `compat') is upgraded automatically:
+      ;; `package-compute-transaction' includes it once the built-in no
+      ;; longer satisfies the required version.
       (elpacman--out "resolving dependencies...\n")
-      (let* ((package-install-upgrade-built-in t)
-             (new (seq-remove #'package-installed-p symbols))
+      (let* ((new (seq-remove #'package-installed-p symbols))
              (txn (elpacman--install-transaction new)))
         (when (or txn vc-specs)
           (elpacman--preview txn "Total Installed Size:"
@@ -656,10 +653,11 @@ Packages that are not installed are reported as errors.  The remaining
 packages are previewed and confirmed before being deleted, and the disk
 space freed by each is reported.  ARGS is a list of package name
 strings.  Return 0 on success or when the user declines, 1 when a named
-package is not installed."
+package is not installed, and 2 on a usage error such as a missing
+package name."
   (unless args
     (elpacman--err "error: delete requires at least one package name\n")
-    (cl-return-from elpacman-cmd-delete 1))
+    (cl-return-from elpacman-cmd-delete 2))
   (let ((status 0)
         (descs nil))
     ;; Resolve names to installed descriptions, reporting any that are
@@ -793,10 +791,11 @@ NAME is a package symbol.  The result is sorted alphabetically."
   "Show detailed information about the package named in ARGS.
 Only the first element of ARGS is used.  Information is drawn from the
 installed description when present, otherwise from the archives.
-Return 0 on success, 1 when the package is unknown."
+Return 0 on success, 1 when the package is unknown, and 2 on a usage
+error such as a missing package name."
   (unless args
     (elpacman--err "error: info requires a package name\n")
-    (cl-return-from elpacman-cmd-info 1))
+    (cl-return-from elpacman-cmd-info 2))
   (let* ((name (intern (car args)))
          (installed (elpacman--installed-desc name))
          (available (elpacman--available-desc name))

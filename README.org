@@ -169,7 +169,7 @@ and then ask for confirmation before doing anything, styled after =pacman=.
   $ elpacman upgrade
   :: Starting package upgrade...
 
-  Packages (2) magit-20260101.1->20260808.323  transient-0.7.0->0.9.0
+  Packages (2) magit-20260808.323  transient-0.9.0
 
   :: Proceed with upgrade? [Y/n]
 #+end_src
@@ -406,11 +406,12 @@ regenerated with =make completions= whenever the commands change.
 =elpacman= returns a meaningful exit status, so that it can be used in scripts.
 
 - =0= -- The sub-command completed successfully.
-- =1= -- The sub-command failed, e.g. an unknown sub-command was given, a
-  required argument was missing, a named package was not installed, an install
-  or upgrade failed, =check= found a broken package, or a confirmation was
-  required but could not be obtained (no terminal and no =--yes=).
-- =2= -- A =search= was invoked without any search term.
+- =1= -- The sub-command failed, e.g. an unknown sub-command was given, a named
+  package was not installed, an install or upgrade failed, =check= found a
+  broken package, or a confirmation was required but could not be obtained (no
+  terminal and no =--yes=).
+- =2= -- A usage error, e.g. a required argument (a package name, a search term,
+  a completion shell) was missing or invalid.
 
 * Tests
 
