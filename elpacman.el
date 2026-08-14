@@ -312,24 +312,37 @@ leading blank line, a `:: ' prefix and a `[Y/n]' default."
     (signal 'elpacman-aborted
             (list "not running interactively; pass --yes to proceed")))))
 
-(defun elpacman--preview (descs &optional size-label size-bytes)
+(defun elpacman--preview (descs &optional size-label size-bytes extra-tokens)
   "Print the packages in DESCS as a `pacman'-style transaction preview.
-DESCS is a list of `package-desc' objects.  They are printed as a
-`Packages (N)' header followed by `name-version' tokens.  When
-SIZE-LABEL is given and SIZE-BYTES is a positive number, a total-size
-line such as `Total Installed Size:' is printed.  The size line is
-skipped when the size is unknown, so no misleading zero is shown (for
-example, the on-disk size of a not-yet-installed package is unknown)."
-  (let ((tokens (mapcar (lambda (desc)
-                          (format "%s-%s"
-                                  (package-desc-name desc)
-                                  (elpacman--version-string desc)))
-                        descs)))
+DESCS is a list of `package-desc' objects, printed as a `Packages (N)'
+header followed by `name-version' tokens.  EXTRA-TOKENS is an optional
+list of already-formatted token strings (used for version-controlled
+packages, which have no `package-desc' yet); they are appended to the
+list and counted in N.  When SIZE-LABEL is given and SIZE-BYTES is a
+positive number, a total-size line such as `Total Installed Size:' is
+printed.  The size line is skipped when the size is unknown, so no
+misleading zero is shown (for example, the on-disk size of a
+not-yet-installed package is unknown)."
+  (let ((tokens (append (mapcar (lambda (desc)
+                                  (format "%s-%s"
+                                          (package-desc-name desc)
+                                          (elpacman--version-string desc)))
+                                descs)
+                        extra-tokens)))
     (elpacman--out "\nPackages (%d) %s\n"
-                   (length descs) (string-join tokens "  ")))
+                   (length tokens) (string-join tokens "  ")))
   (when (and size-label size-bytes (> size-bytes 0))
     (elpacman--out "\n%s %s\n"
                    size-label (elpacman--human-size size-bytes))))
+
+(defun elpacman--vc-spec-name (spec)
+  "Return a display package name derived from the version-control SPEC.
+SPEC is a URL or repository specification; the name is its final path
+component with any `.git' or `.el' suffix removed, e.g. the URL
+`https://github.com/jdtsmith/eglot-booster' yields `eglot-booster'."
+  (file-name-base
+   (directory-file-name
+    (replace-regexp-in-string "\\.git\\'" "" spec))))
 
 (defun elpacman--dir-size (dir)
   "Return the total size in bytes of all files under DIR.
@@ -547,9 +560,13 @@ may be out of date."
                              (apply #'+ (mapcar (lambda (d)
                                                   (elpacman--dir-size
                                                    (package-desc-dir d)))
-                                                txn)))
-          (dolist (spec vc-specs)
-            (elpacman--out "  %s (from version control)\n" spec))
+                                                txn))
+                             ;; VC packages are not yet cloned, so they
+                             ;; have no `package-desc'; show a derived
+                             ;; name with an `@vc' marker.
+                             (mapcar (lambda (spec)
+                                       (format "%s@vc" (elpacman--vc-spec-name spec)))
+                                     vc-specs))
           (unless (elpacman--confirm "Proceed with installation?")
             (cl-return-from elpacman-cmd-install 0)))
         ;; Install every package in the resolved transaction -- the named
@@ -619,17 +636,17 @@ N and TOTAL position the package in the `(N/TOTAL)' progress line.
 SPEC is a URL, or a package name known to the archives with VC
 metadata.  Installation is performed via `package-vc-install'.  Return
 non-nil on success, nil when the package could not be installed."
-  (condition-case err
-      (progn
-        (elpacman--out "(%d/%d) installing %s (from version control)\n"
-                       n total spec)
-        (elpacman--with-progress (format "installing %s: " spec)
-          (package-vc-install spec))
-        t)
-    (error
-     (elpacman--err "error: failed to install `%s': %s\n"
-                    spec (error-message-string err))
-     nil)))
+  (let ((name (elpacman--vc-spec-name spec)))
+    (condition-case err
+        (progn
+          (elpacman--out "(%d/%d) installing %s (from %s)\n" n total name spec)
+          (elpacman--with-progress (format "installing %s: " name)
+            (package-vc-install spec))
+          t)
+      (error
+       (elpacman--err "error: failed to install `%s': %s\n"
+                      name (error-message-string err))
+       nil))))
 
 ;;;; Sub-command: delete
 
