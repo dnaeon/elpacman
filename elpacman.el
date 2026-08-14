@@ -700,6 +700,32 @@ reported as such, archive packages report their archive name."
     (package-desc-archive installed))
    (t "-")))
 
+(defun elpacman--extra (desc key)
+  "Return the extras value stored under KEY in DESC, or nil.
+DESC is a `package-desc'; KEY is a keyword such as `:url'."
+  (and desc (cdr (assq key (package-desc-extras desc)))))
+
+(defun elpacman--format-people (people)
+  "Format PEOPLE, an alist of (NAME . EMAIL), as a display string.
+Return nil when PEOPLE is empty."
+  (when people
+    (mapconcat (lambda (person)
+                 (let ((name (car person))
+                       (email (cdr person)))
+                   (if (and email (not (string-empty-p email)))
+                       (format "%s <%s>" name email)
+                     name)))
+               people ", ")))
+
+(defun elpacman--required-by (name)
+  "Return the names of installed packages that depend on NAME, as symbols.
+NAME is a package symbol.  The result is sorted alphabetically."
+  (let ((dependents nil))
+    (dolist (entry package-alist)
+      (when (assq name (package-desc-reqs (cadr entry)))
+        (push (car entry) dependents)))
+    (sort dependents (lambda (a b) (string< (symbol-name a) (symbol-name b))))))
+
 (cl-defun elpacman-cmd-info (args)
   "Show detailed information about the package named in ARGS.
 Only the first element of ARGS is used.  Information is drawn from the
@@ -720,8 +746,19 @@ Return 0 on success, 1 when the package is unknown."
     (elpacman--out "Version         : %s\n"
                    (elpacman--version-string (or available installed)))
     (elpacman--out "Description     : %s\n" (or (package-desc-summary desc) "-"))
+    (elpacman--out "URL             : %s\n" (or (elpacman--extra desc :url) "-"))
+    (let ((keywords (elpacman--extra desc :keywords)))
+      (elpacman--out "Keywords        : %s\n"
+                     (if keywords (mapconcat #'identity keywords "  ") "None")))
+    (let ((people (or (elpacman--format-people (elpacman--extra desc :maintainers))
+                      (elpacman--format-people (elpacman--extra desc :authors)))))
+      (elpacman--out "Maintainer      : %s\n" (or people "-")))
     (elpacman--out "Repository      : %s\n"
                    (elpacman--source-string installed available))
+    ;; A version-controlled package pins a specific commit; show it.
+    (when (elpacman--vc-p installed)
+      (elpacman--out "Commit          : %s\n"
+                     (or (ignore-errors (package-vc-commit installed)) "-")))
     (let ((reqs (package-desc-reqs desc)))
       (elpacman--out "Depends On      : %s\n"
                      (if reqs
@@ -731,6 +768,13 @@ Return 0 on success, 1 when the package is unknown."
                                     (package-version-join (cadr r))))
                           reqs "  ")
                        "None")))
+    ;; Reverse dependencies are only meaningful for an installed package.
+    (when installed
+      (let ((rdeps (elpacman--required-by name)))
+        (elpacman--out "Required By     : %s\n"
+                       (if rdeps
+                           (mapconcat #'symbol-name rdeps "  ")
+                         "None"))))
     (elpacman--out "Installed       : %s\n"
                    (if installed
                        (format "Yes (%s)" (elpacman--version-string installed))

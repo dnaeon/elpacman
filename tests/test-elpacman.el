@@ -391,6 +391,45 @@ The optional size line is included when a label is supplied."
     (should (string-search "beta-2.0" output))
     (should (string-search "Total Installed Size:" output))))
 
+;;;; Unit tests: info helpers
+
+(ert-deftest elpacman-test-format-people ()
+  "`elpacman--format-people' renders name and email, or just name."
+  (should (equal (elpacman--format-people '(("Ada" . "ada@example.com")))
+                 "Ada <ada@example.com>"))
+  (should (equal (elpacman--format-people '(("Ada" . "ada@example.com")
+                                            ("Bab" . "bab@example.com")))
+                 "Ada <ada@example.com>, Bab <bab@example.com>"))
+  ;; Missing or empty email falls back to just the name.
+  (should (equal (elpacman--format-people '(("Ada" . ""))) "Ada"))
+  (should (equal (elpacman--format-people '(("Ada"))) "Ada"))
+  ;; Empty input yields nil, so callers can substitute a placeholder.
+  (should-not (elpacman--format-people nil)))
+
+(ert-deftest elpacman-test-extra ()
+  "`elpacman--extra' reads a keyword from a package's extras alist."
+  (let ((desc (package-desc-create :name 'demo :version '(1 0)
+                                   :extras '((:url . "https://example.com")))))
+    (should (equal (elpacman--extra desc :url) "https://example.com"))
+    (should-not (elpacman--extra desc :missing))
+    (should-not (elpacman--extra nil :url))))
+
+(ert-deftest elpacman-test-required-by ()
+  "`elpacman--required-by' finds installed packages that depend on NAME.
+The installed set is stubbed via a let-bound `package-alist'."
+  (let ((package-alist
+         (list (list 'foo (package-desc-create
+                           :name 'foo :version '(1 0)
+                           :reqs '((bar (1 0)))))
+               (list 'baz (package-desc-create
+                           :name 'baz :version '(1 0)
+                           :reqs '((bar (1 0)) (qux (1 0)))))
+               (list 'lonely (package-desc-create
+                              :name 'lonely :version '(1 0) :reqs nil)))))
+    (should (equal (elpacman--required-by 'bar) '(baz foo)))
+    (should (equal (elpacman--required-by 'qux) '(baz)))
+    (should-not (elpacman--required-by 'nobody))))
+
 ;;;; Unit tests: completions
 
 (ert-deftest elpacman-test-completions-requires-shell ()
