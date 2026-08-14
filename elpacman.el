@@ -826,7 +826,7 @@ ARGS are ignored.  This is useful after upgrading Emacs itself, when the
 existing byte-code may no longer be valid.  Return 0 on success; a
 failure during recompilation is signalled and reported by the caller as
 a non-zero exit status."
-  (elpacman--out "Recompiling installed packages:\n")
+  (elpacman--out ":: Recompiling installed packages...\n")
   (elpacman--with-progress "recompile: "
     (package-recompile-all))
   (elpacman--out "Recompilation finished.\n")
