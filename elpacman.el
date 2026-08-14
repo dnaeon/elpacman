@@ -268,11 +268,12 @@ NAME is a symbol."
 
 (defun elpacman--version-string (desc)
   "Return the version of the package described by DESC as a string.
-VC-installed packages report the string \"vc\", as they are not
-versioned through the archives."
+A VC-installed package is not versioned through the archives, so its
+abbreviated commit is used as the version instead, falling back to the
+string \"vc\" when the commit is unavailable."
   (cond
    ((null desc) "-")
-   ((elpacman--vc-p desc) "vc")
+   ((elpacman--vc-p desc) (or (elpacman--short-commit desc) "vc"))
    (t (package-version-join (package-desc-version desc)))))
 
 (defun elpacman--upgradeable-names ()
@@ -374,23 +375,33 @@ named package is not installed or an upgrade failed."
       (elpacman--upgrade-named (elpacman--intern-names args))
     (elpacman--upgrade-all)))
 
+(defun elpacman--short-commit (desc)
+  "Return the abbreviated commit of the VC package DESC, or nil.
+The commit is shortened to the first seven characters, in the manner of
+Git's short hashes."
+  (let ((commit (ignore-errors (package-vc-commit desc))))
+    (when (and commit (>= (length commit) 7))
+      (substring commit 0 7))))
+
 (defun elpacman--upgrade-token (name)
   "Return a `pacman'-style token describing the upgrade of NAME.
-For an archive package the token shows the version transition, as in
-`magit-1->2'.  For a version-controlled package, whose new version is
-not known from the archives, it shows just `NAME-vc'."
+For an archive package the token shows the target version, as in
+`magit-20260813.2147', matching how `pacman' lists a transaction.  A
+version-controlled package has no archive target version, so it is shown
+at its current commit using the `NAME@COMMIT' convention, as in
+`eglot-booster@e6daa6b'.  The old-to-new transition is reserved for the
+`outdated' command."
   (let ((installed (elpacman--installed-desc name)))
     (if (elpacman--vc-p installed)
-        (format "%s-vc" name)
-      (format "%s-%s->%s"
+        (format "%s@%s" name (or (elpacman--short-commit installed) "vc"))
+      (format "%s-%s"
               name
-              (elpacman--version-string installed)
               (elpacman--version-string (elpacman--available-desc name))))))
 
 (defun elpacman--preview-upgrades (names)
   "Print the packages in NAMES that will be upgraded, `pacman'-style.
 NAMES is a list of package symbols.  A `Packages (N)' header lists each
-package with its version transition."
+package at the version it will be upgraded to."
   (let ((tokens (mapcar #'elpacman--upgrade-token names)))
     (elpacman--out "\nPackages (%d) %s\n"
                    (length names) (string-join tokens "  "))))
@@ -826,7 +837,8 @@ Return 0 on success, 1 when the package is unknown."
 
 (defun elpacman-cmd-list (_args)
   "List every installed package with its version and source.
-ARGS are ignored.  Return 0."
+Version-controlled packages show their abbreviated commit as the version
+and are tagged with `(vc)'.  ARGS are ignored.  Return 0."
   (let ((descs (elpacman--installed-descs)))
     (if (null descs)
         (elpacman--out "No packages are installed.\n")
@@ -855,8 +867,10 @@ a non-zero exit status."
         (let ((installed (elpacman--installed-desc name)))
           (if (elpacman--vc-p installed)
               ;; A VC package upgrades from its remote, so there is no
-              ;; archive version to show as the target.
-              (elpacman--out "%s vc (vc)\n" name)
+              ;; archive version to show as the target; report it at its
+              ;; current commit instead.
+              (elpacman--out "%s %s (vc)\n"
+                             name (elpacman--version-string installed))
             (elpacman--out "%s %s -> %s\n"
                            name
                            (elpacman--version-string installed)
