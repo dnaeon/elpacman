@@ -3,6 +3,13 @@
 ;; Copyright (c) 2026 Marin Atanasov Nikolov <dnaeon@gmail.com>
 ;; All rights reserved.
 ;;
+;; Author: Marin Atanasov Nikolov <dnaeon@gmail.com>
+;; Maintainer: Marin Atanasov Nikolov <dnaeon@gmail.com>
+;; Version: 0.1.0
+;; Package-Requires: ((emacs "29.1"))
+;; Keywords: convenience, tools
+;; URL: https://github.com/dnaeon/elpacman
+;;
 ;; Redistribution and use in source and binary forms, with or without
 ;; modification, are permitted provided that the following conditions
 ;; are met:
