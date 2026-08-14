@@ -1,0 +1,446 @@
+* elpacman
+
+=elpacman= is a command-line package manager for Emacs, modelled after system
+package managers such as =apt= and =pacman=.
+
+It lets you install, upgrade, remove and query the packages of your Emacs
+configuration straight from the terminal, without having to open an interactive
+Emacs session.
+
+A summary of the features supported by =elpacman= is provided below.
+
+- Sub-command driven interface, similar to =apt= and =pacman=
+- Install packages from the configured archives (GNU ELPA, MELPA, etc.)
+- Install packages directly from a version-control URL
+- Upgrade all packages at once, or only the ones you name
+- Handles both archive-based and version-controlled packages, so that no
+  installed package is silently skipped
+- Previews the packages that will change and asks for confirmation before
+  install, upgrade or removal, just like =pacman=
+- Search the archives and inspect detailed package information
+- List installed and outdated packages
+- Check for broken packages
+- Recompile the byte-code of installed packages, e.g. after an Emacs upgrade
+- Remove packages that are no longer needed
+- Generates bash and zsh completions from its own command table
+- Operates on your real Emacs configuration by default, so it reflects the
+  packages you actually use
+- Meaningful exit status codes, suitable for use in scripts
+
+Other tools you might want to check out.
+
+- [[https://melpa.org/#/package-utils][package-utils]]
+- [[https://github.com/cask/cask][Cask]]
+- [[https://emacs-eask.github.io/][Eask]]
+
+* Why elpacman?
+
+Emacs already has a package menu (=M-x list-packages=) and interactive commands
+such as =package-install= and =package-upgrade-all=.  So why a command-line
+tool?
+
+Because a command-line tool makes package management /scriptable/.  It runs
+without opening an interactive Emacs session, which is exactly what you want in
+situations such as these.
+
+- *CI/CD pipelines* -- install the packages a job needs, or verify that
+  your configuration's packages still install and byte-compile cleanly,
+  as an ordinary build step.
+- *Dotfiles bootstrap* -- bring a fresh machine's Emacs up to date with a
+  single command in your setup script.
+- *Scheduled upgrades* -- run =elpacman upgrade --yes= from =cron= or a
+  timer to keep packages current unattended.
+- *One-shot installs* -- add a package from the shell without leaving
+  your current context, then carry on.
+
+Every sub-command returns a meaningful exit status, so failures are easy to
+detect in scripts.
+
+* Requirements
+
+- GNU Emacs 29.1 or newer (uses =package-vc= and =package-upgrade=)
+- =bash=
+- GNU coreutils (for =readlink -f=).  Present by default on Linux; on
+  macOS install it with =brew install coreutils=.
+- =tput= (optional, used only for output trimming)
+
+* Installation
+
+=elpacman= is a self-contained Bash wrapper around an Emacs Lisp core.  There is
+nothing to compile and no packages to install.
+
+Clone the repository and put the =elpacman= wrapper on your =PATH=, for example
+by symlinking it into a directory that is already on your =PATH=.
+
+#+begin_src shell
+  git clone https://github.com/dnaeon/elpacman.git
+  ln -s "$(pwd)/elpacman/elpacman" ~/.local/bin/elpacman
+#+end_src
+
+The wrapper resolves its own location even when symlinked, so the =elpacman.el=
+core is always found next to the real wrapper file.
+
+If you prefer a shorter command, symlink it under a shorter name such as =epm=.
+
+#+begin_src shell
+  ln -s "$(pwd)/elpacman/elpacman" ~/.local/bin/epm
+#+end_src
+
+Alternatively, define a shell alias in your shell's startup file:
+
+#+begin_src shell
+  alias epm='elpacman'
+#+end_src
+
+* Package archives
+
+=elpacman= does not define its own package sources.  It loads your Emacs
+configuration and uses the =package-archives= and =package-user-dir= it finds
+there, so it installs into the very same place your interactive Emacs reads
+from.
+
+A stock Emacs already knows about GNU ELPA and NonGNU ELPA, so packages from
+those archives install without any configuration.  Most third party packages,
+however, live on [[https://melpa.org/][MELPA]], which is /not/ enabled by default.  To install from
+MELPA (or any other archive), your configuration must register it.  A minimal
+=~/.emacs.d/init.el= is enough:
+
+#+begin_src emacs-lisp
+  (require 'package)
+  (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
+  (package-initialize)
+#+end_src
+
+Without this, installing a MELPA-only package fails with =target not found=.  If
+you already run Emacs with your own configuration, MELPA is almost certainly set
+up already and there is nothing more to do.
+
+* Quick Example
+
+Refresh the package database and upgrade everything.
+
+#+begin_src shell
+  elpacman update
+  elpacman upgrade
+#+end_src
+
+Install a couple of packages.
+
+#+begin_src shell
+  elpacman install magit vterm
+#+end_src
+
+Install a package straight from its source repository.
+
+#+begin_src shell
+  elpacman install --vc https://github.com/jdtsmith/eglot-booster
+#+end_src
+
+Search for a package and show detailed information about it.
+
+#+begin_src shell
+  elpacman search markdown
+  elpacman info markdown-mode
+#+end_src
+
+Remove a package you no longer use.
+
+#+begin_src shell
+  elpacman delete some-package
+#+end_src
+
+* Usage
+
+=elpacman= is invoked with a sub-command and its arguments.
+
+#+begin_src shell
+  elpacman <sub-command> [arguments...]
+#+end_src
+
+The available sub-commands are described below.
+
+** Confirmation prompts
+
+The commands that change your installed packages -- =install=, =upgrade=,
+=delete= and =autoremove= -- first print the list of packages that will change
+and then ask for confirmation before doing anything, styled after =pacman=.
+
+#+begin_src shell
+  $ elpacman upgrade
+  :: Starting package upgrade...
+
+  Packages (2) magit-20260101.1->20260808.323  transient-0.7.0->0.9.0
+
+  :: Proceed with upgrade? [y/N]
+#+end_src
+
+Pass =-y=, =--yes= or =--assume-yes= to skip the prompt, which is what
+you want in scripts and CI.
+
+#+begin_src shell
+  elpacman upgrade --yes
+  elpacman install magit -y
+#+end_src
+
+Note that unlike =pacman=, whose prompts default to yes (=[Y/n]=), =elpacman=
+defaults to no (=[y/N]=): a bare newline declines, so a stray keypress never
+changes your packages.
+
+When =elpacman= is not attached to a terminal (for example in a pipeline) and no
+such option was given, it refuses to guess: it prints an error and exits without
+changing anything.  This keeps unattended runs safe -- pass =--yes= to proceed.
+
+The =ELPACMAN_ASSUME_YES= environment variable, when set to a non-empty value,
+has the same effect as passing =--yes= to every invocation.
+
+** update
+
+Refresh the local package database from the configured archives.
+
+#+begin_src shell
+  elpacman update
+#+end_src
+
+** upgrade
+
+Upgrade installed packages.  When invoked without arguments every package for
+which a newer version is available is upgraded.  When one or more package names
+are given, only those packages are upgraded.
+
+Both archive-based and version-controlled packages are considered.
+
+#+begin_src shell
+  elpacman upgrade
+  elpacman upgrade magit vterm
+#+end_src
+
+** install
+
+Install one or more packages from the configured archives.
+
+#+begin_src shell
+  elpacman install magit vterm
+#+end_src
+
+Use the =--vc= option to install a package from a version-control URL or
+specification.  The option may be given more than once, and may be mixed with
+regular archive package names.
+
+#+begin_src shell
+  elpacman install --vc https://github.com/jdtsmith/eglot-booster
+#+end_src
+
+** delete
+
+Delete one or more installed packages. The =remove= alias is also accepted.
+
+#+begin_src shell
+  elpacman delete some-package
+  elpacman remove some-package
+#+end_src
+
+** search
+
+Search the archives for packages.  Every term must match, case insensitively,
+either the package name or its summary.
+
+#+begin_src shell
+  elpacman search markdown mode
+#+end_src
+
+** info
+
+Show detailed information about a single package: its version, description,
+homepage URL, keywords, maintainer, source, dependencies and the installed
+packages that require it.
+
+#+begin_src shell
+  elpacman info markdown-mode
+#+end_src
+
+** list
+
+List every installed package with its version.  Version-controlled packages are
+marked with =(vc)=.
+
+#+begin_src shell
+  elpacman list
+#+end_src
+
+** outdated
+
+List packages for which an upgrade is available, showing the installed and
+available versions.  The database is refreshed first.
+
+#+begin_src shell
+  elpacman outdated
+#+end_src
+
+** check
+
+Check installed packages for problems.  A package is reported as broken when its
+installation directory is missing, or when one of its declared dependencies is
+not satisfied by an installed package.
+
+#+begin_src shell
+  elpacman check
+#+end_src
+
+** recompile
+
+Recompile the byte-code of all installed packages.  This is useful after
+upgrading Emacs itself, when the existing byte-code may no longer be valid.
+
+#+begin_src shell
+  elpacman recompile
+#+end_src
+
+** autoremove
+
+Remove packages that were installed as dependencies and are no longer required
+by any explicitly installed package.
+
+#+begin_src shell
+  elpacman autoremove
+#+end_src
+
+** completions
+
+Generate a shell completion script for =bash= or =zsh=.
+
+#+begin_src shell
+  elpacman completions bash
+  elpacman completions zsh
+#+end_src
+
+See the [[*Shell completion][Shell completion]] section for how to install it.
+
+** version
+
+Print the =elpacman= version and the Emacs version.
+
+#+begin_src shell
+  elpacman version
+#+end_src
+
+** help
+
+Print the usage information.
+
+#+begin_src shell
+  elpacman help
+#+end_src
+
+* Configuration
+
+By default =elpacman= operates on your own Emacs configuration by loading your
+init files, so that it sees the same package archives and the same set of
+installed packages as your interactive Emacs.
+
+The following environment variables influence its behaviour.  They are part of
+the wrapper's interface: each has a default and may be overridden from the
+environment.
+
+- =EMACS= -- The Emacs binary to use.  Defaults to =emacs=.
+- =ELPACMAN_NO_INIT= -- When set to a non-empty value, =elpacman= runs against a
+  clean Emacs (=emacs -Q=) instead of loading your init files.  This is mainly
+  useful for testing.
+- =ELPACMAN_ASSUME_YES= -- When set to a non-empty value, assume "yes" to every
+  confirmation prompt, as if =--yes= had been given.
+
+The =elpacman= wrapper follows a simple naming convention for its shell
+variables.  Uppercase variables (such as those above) are the interface and are
+safe to rely on.  Lowercase names are function-local working variables and are
+an internal implementation detail.
+
+** A note on init output
+
+Because =elpacman= loads your init files, anything your configuration prints
+while it starts up (for example =recentf= cleanup messages or package
+initialization notices) is also printed while =elpacman= runs.  This output goes
+to the standard error, whereas the output of =elpacman= itself goes to the
+standard output.  If you want only the =elpacman= output, redirect the standard
+error away.
+
+#+begin_src shell
+  elpacman list 2>/dev/null
+#+end_src
+
+Alternatively, run against a clean Emacs, which loads no init files and
+therefore produces no such output.  Note that in this mode =elpacman= does not
+see your configured archives or installed packages, so it is only useful for
+=help=, =version= and similar commands.
+
+#+begin_src shell
+  ELPACMAN_NO_INIT=1 elpacman help
+#+end_src
+
+* Shell completion
+
+=elpacman= can generate completion scripts for =bash= and =zsh= from its own
+commands, so the completions never drift out of sync with the tool.  They
+complete sub-command names and options.
+
+The quickest way is to evaluate the script from your shell's startup file.
+
+#+begin_src shell
+  # ~/.bashrc
+  source <(elpacman completions bash)
+
+  # ~/.zshrc
+  source <(elpacman completions zsh)
+#+end_src
+
+Alternatively, write the script to the location your system uses for completion
+files.
+
+#+begin_src shell
+  # bash
+  elpacman completions bash > /etc/bash_completion.d/elpacman
+
+  # zsh (a directory on your $fpath)
+  elpacman completions zsh > ~/.zsh/completions/_elpacman
+#+end_src
+
+Pre-generated scripts are also committed under =completions/= and can be
+regenerated with =make completions= whenever the commands change.
+
+* Exit Status
+
+=elpacman= returns a meaningful exit status, so that it can be used in scripts.
+
+- =0= -- The sub-command completed successfully.
+- =1= -- The sub-command failed, e.g. an unknown sub-command was given, a
+  required argument was missing, a named package was not installed, an install
+  or upgrade failed, =check= found a broken package, or a confirmation was
+  required but could not be obtained (no terminal and no =--yes=).
+- =2= -- A =search= was invoked without any search term.
+
+* Tests
+
+The test-suite is written with [[https://www.gnu.org/software/emacs/manual/html_node/ert/][ERT]], the Emacs Lisp Regression Testing tool that
+ships with Emacs.  It is split into fast, offline unit tests and
+network-dependent integration tests; the latter are only run when
+=ELPACMAN_INTEGRATION= is set.
+
+Run the unit tests.
+
+#+begin_src shell
+  make test
+#+end_src
+
+Run the unit tests together with the integration tests.
+
+#+begin_src shell
+  ELPACMAN_INTEGRATION=1 make test
+#+end_src
+
+Byte-compile the core, promoting warnings to errors.
+
+#+begin_src shell
+  make compile
+#+end_src
+
+* License
+
+=elpacman= is Open Source and licensed under the [[https://opensource.org/licenses/BSD-2-Clause][BSD 2-Clause License]].
