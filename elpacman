@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# Copyright (c) 2026 Marin Atanasov Nikolov <dnaeon@gmail.com>
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+#  1. Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer
+#     in this position and unchanged.
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+# IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+# NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# `elpacman' is a command-line package manager for Emacs.
+#
+# This is a thin Bash wrapper.  It resolves the location of the
+# `elpacman.el' Elisp core, selects the Emacs binary to use and then
+# hands over control to Emacs running in batch mode, forwarding all
+# command-line arguments to the core.
+#
+# Naming convention for variables:
+#
+#   * Lowercase names (e.g. `init_args') are function-local working
+#     variables.
+#
+#   * `_UPPERCASE' names (e.g. `_SCRIPT_DIR', `_CORE') are
+#     script-internal globals.  They are an implementation detail; do
+#     not rely on them.
+#
+#   * UPPERCASE names without the underscore (e.g. `EMACS',
+#     `ELPACMAN_NO_INIT', `ELPACMAN_ASSUME_YES') are part of the
+#     script's interface.  Each has a default and may be overridden from
+#     the environment.
+#
+# Interface variables:
+#
+#   * EMACS              -- The Emacs binary to use.  Defaults to `emacs'.
+#   * ELPACMAN_NO_INIT   -- When non-empty, run against a clean Emacs
+#                           (`emacs -Q') instead of loading the user's
+#                           init files.  Mainly useful for testing.
+#   * ELPACMAN_ASSUME_YES -- When non-empty, assume "yes" to all
+#                           confirmation prompts, as if `--yes' was given.
+
+set -euo pipefail
+
+# Resolve the canonical path of this script, following any symbolic
+# links, so that the wrapper keeps working when it is symlinked into a
+# directory on the user's PATH.  `readlink -f' is a GNU coreutils
+# feature; on macOS install coreutils (e.g. `brew install coreutils')
+# so that a GNU `readlink' is on the PATH.
+_SCRIPT_PATH="$( readlink -f -- "${BASH_SOURCE[0]}" )"
+_SCRIPT_DIR="$( dirname -- "${_SCRIPT_PATH}" )"
+
+# The `elpacman.el' core to load, next to this script.
+_CORE="${_SCRIPT_DIR}/elpacman.el"
+
+# Interface variables, each with a default and overridable from the
+# environment.  `ELPACMAN_NO_INIT' and `ELPACMAN_ASSUME_YES' are
+# exported so that they reach the Emacs sub-process that runs the core.
+EMACS="${EMACS:-emacs}"
+export ELPACMAN_NO_INIT="${ELPACMAN_NO_INIT:-}"
+export ELPACMAN_ASSUME_YES="${ELPACMAN_ASSUME_YES:-}"
+
+main() {
+    local init_args columns tty
+
+    # `elpacman' operates on the invoking user's own Emacs configuration
+    # by default, so that it reflects the real set of installed
+    # packages.  The `-u' option loads the user's init files.  Set
+    # `ELPACMAN_NO_INIT' to a non-empty value in order to run against a
+    # clean Emacs instead, which is what the test-suite does.
+    if [[ -n "${ELPACMAN_NO_INIT}" ]]; then
+        init_args=( "-Q" )
+    else
+        init_args=( "-u" "${USER}" )
+    fi
+
+    # Export the terminal width so that the core can trim its progress
+    # output to fit.  `tput' fails when there is no controlling
+    # terminal, hence the fallback to an empty value.
+    columns="$( tput cols 2>/dev/null || true )"
+    export COLUMNS="${columns}"
+
+    # Emacs batch mode has no way to tell whether it is attached to a
+    # terminal, so we detect it here and pass the result to the core.
+    # `ELPACMAN_TTY' is non-empty only when both the standard input and
+    # the standard output are terminals, which is when it is safe to
+    # prompt the user for confirmation.
+    if [[ -t 0 && -t 1 ]]; then
+        tty="1"
+    else
+        tty=""
+    fi
+    export ELPACMAN_TTY="${tty}"
+
+    # `--script' already implies batch mode.  We pass the sub-command
+    # and its arguments after `--' so that Emacs leaves them untouched
+    # in `command-line-args-left' for the core to parse.
+    exec "${EMACS}" "${init_args[@]}" --script "${_CORE}" -- "$@"
+}
+
+main "$@"
