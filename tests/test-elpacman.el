@@ -136,15 +136,15 @@ string, so that the printed output can be inspected."
 ;;;; Unit tests: argument validation without the package system
 
 (ert-deftest elpacman-test-install-requires-argument ()
-  "Installing with no package name returns 1 and reports an error."
+  "Installing with no package name returns 2 and reports an error."
   (let ((output (elpacman-test-with-output
-                  (should (equal (elpacman-cmd-install nil) 1)))))
+                  (should (equal (elpacman-cmd-install nil) 2)))))
     (should (string-search "requires at least one package" output))))
 
 (ert-deftest elpacman-test-delete-requires-argument ()
-  "Deleting with no package name returns 1 and reports an error."
+  "Deleting with no package name returns 2 and reports an error."
   (let ((output (elpacman-test-with-output
-                  (should (equal (elpacman-cmd-delete nil) 1)))))
+                  (should (equal (elpacman-cmd-delete nil) 2)))))
     (should (string-search "requires at least one package" output))))
 
 (ert-deftest elpacman-test-search-requires-argument ()
@@ -154,17 +154,17 @@ string, so that the printed output can be inspected."
     (should (string-search "requires at least one search term" output))))
 
 (ert-deftest elpacman-test-info-requires-argument ()
-  "Requesting info with no package name returns 1 and reports an error."
+  "Requesting info with no package name returns 2 and reports an error."
   (let ((output (elpacman-test-with-output
-                  (should (equal (elpacman-cmd-info nil) 1)))))
+                  (should (equal (elpacman-cmd-info nil) 2)))))
     (should (string-search "requires a package name" output))))
 
 (ert-deftest elpacman-test-install-vc-requires-url ()
-  "The `--vc' option without a following URL returns 1.
+  "The `--vc' option without a following URL returns 2 (a usage error).
 The error is reported before any package operation, so the test stays
 offline."
   (let ((output (elpacman-test-with-output
-                  (should (equal (elpacman-cmd-install '("--vc")) 1)))))
+                  (should (equal (elpacman-cmd-install '("--vc")) 2)))))
     (should (string-search "--vc requires" output))))
 
 ;;;; Unit tests: version rendering
@@ -179,21 +179,30 @@ offline."
     (should (equal (elpacman--version-string desc) "1.2.3"))))
 
 (ert-deftest elpacman-test-upgrade-token-archive ()
-  "The upgrade token of an archive package shows the version transition."
+  "The upgrade token of an archive package shows the target version.
+Like `pacman', the transaction lists the version to be installed, not
+an old-to-new transition."
   (cl-letf (((symbol-function 'elpacman--installed-desc)
              (lambda (_) (package-desc-create :name 'demo :version '(1 0))))
             ((symbol-function 'elpacman--available-desc)
              (lambda (_) (package-desc-create :name 'demo :version '(2 0)))))
-    (should (equal (elpacman--upgrade-token 'demo) "demo-1.0->2.0"))))
+    (should (equal (elpacman--upgrade-token 'demo) "demo-2.0"))))
 
 (ert-deftest elpacman-test-upgrade-token-vc ()
-  "The upgrade token of a VC package shows `NAME-vc', not a bogus transition.
-A version-controlled package has no archive version to upgrade towards,
-so it must not render as `demo-vc->-'."
+  "The upgrade token of a VC package uses the `NAME@COMMIT' convention.
+A version-controlled package has no archive target version, so it is
+shown at its current commit; when the commit is unavailable it falls
+back to `NAME@vc'."
   (cl-letf (((symbol-function 'elpacman--installed-desc)
              (lambda (_) (package-desc-create :name 'demo :version '(1 0))))
             ((symbol-function 'elpacman--vc-p) (lambda (_) t)))
-    (should (equal (elpacman--upgrade-token 'demo) "demo-vc"))))
+    ;; With a known commit, the abbreviated hash is shown.
+    (cl-letf (((symbol-function 'package-vc-commit)
+               (lambda (_) "e6daa6bcaf4aceee29c8a5a949b43eb1b89900ed")))
+      (should (equal (elpacman--upgrade-token 'demo) "demo@e6daa6b")))
+    ;; Without a commit, it falls back to the `vc' marker.
+    (cl-letf (((symbol-function 'package-vc-commit) (lambda (_) nil)))
+      (should (equal (elpacman--upgrade-token 'demo) "demo@vc")))))
 
 ;;;; Unit tests: terminal width parsing
 
@@ -400,7 +409,84 @@ The optional size line is included when a label is supplied."
     (should (string-search "beta-2.0" output))
     (should (string-search "Total Installed Size:" output))))
 
+(ert-deftest elpacman-test-preview-counts-extra-tokens ()
+  "`elpacman--preview' appends EXTRA-TOKENS and counts them in N.
+This covers the `install --vc' case, where a version-controlled package
+has no `package-desc' and is passed as a pre-formatted token."
+  (let* ((a (package-desc-create :name 'alpha :version '(1 0)))
+         (output (elpacman-test-with-output
+                   (elpacman--preview (list a) nil nil '("eglot-booster@vc")))))
+    ;; One desc plus one extra token means a count of two.
+    (should (string-search "Packages (2)" output))
+    (should (string-search "alpha-1.0" output))
+    (should (string-search "eglot-booster@vc" output))))
+
+(ert-deftest elpacman-test-preview-extra-tokens-only ()
+  "A preview of only extra-tokens (no descs) still counts them."
+  (let ((output (elpacman-test-with-output
+                  (elpacman--preview nil nil nil '("eglot-booster@vc")))))
+    (should (string-search "Packages (1)" output))
+    (should (string-search "eglot-booster@vc" output))))
+
+;;;; Unit tests: install helpers
+
+(ert-deftest elpacman-test-install-transaction-resolves-deps ()
+  "`elpacman--install-transaction' resolves dependencies and de-duplicates.
+It returns each named package plus its dependencies, in
+`package-compute-transaction' order."
+  ;; `foo' depends on `bar'; both are available.  A stubbed
+  ;; `package-compute-transaction' returns the dependency then the
+  ;; package, mirroring the real ordering.
+  (cl-letf (((symbol-function 'elpacman--available-desc)
+             (lambda (name) (package-desc-create :name name :version '(1 0))))
+            ((symbol-function 'package-compute-transaction)
+             (lambda (packages _reqs)
+               (list (package-desc-create :name 'bar :version '(1 0))
+                     (car packages)))))
+    (let ((names (mapcar #'package-desc-name
+                         (elpacman--install-transaction '(foo)))))
+      (should (equal names '(bar foo))))))
+
+(ert-deftest elpacman-test-install-desc-skips-satisfied ()
+  "`elpacman--install-desc' skips a package already at the wanted version.
+This covers a dependency satisfied by an already-installed (or built-in)
+package: it is reported as up to date and `package-install-from-archive'
+is not called."
+  (let ((desc (package-desc-create :name 'demo :version '(1 0)))
+        (installed-called nil))
+    (cl-letf (((symbol-function 'package-installed-p) (lambda (&rest _) t))
+              ((symbol-function 'package-install-from-archive)
+               (lambda (&rest _) (setq installed-called t))))
+      (let ((output (elpacman-test-with-output
+                      (should (elpacman--install-desc desc 1 1)))))
+        (should (string-search "up to date -- skipping" output))
+        (should-not installed-called)))))
+
+(ert-deftest elpacman-test-list-renders-vc-commit ()
+  "`list' shows a VC package at its short commit with a `(vc)' tag."
+  (let ((desc (package-desc-create :name 'demo :version '(1 0))))
+    (cl-letf (((symbol-function 'elpacman--installed-descs) (lambda () (list desc)))
+              ((symbol-function 'elpacman--vc-p) (lambda (_) t))
+              ((symbol-function 'package-vc-commit)
+               (lambda (_) "e6daa6bcaf4aceee29c8a5a949b43eb1b89900ed")))
+      (let ((output (elpacman-test-with-output
+                      (should (equal (elpacman-cmd-list nil) 0)))))
+        (should (string-search "demo e6daa6b (vc)" output))))))
+
 ;;;; Unit tests: info helpers
+
+(ert-deftest elpacman-test-vc-spec-name ()
+  "`elpacman--vc-spec-name' derives a package name from a VC spec.
+The final path component is used, with any `.git' or `.el' suffix
+removed."
+  (should (equal (elpacman--vc-spec-name "https://github.com/jdtsmith/eglot-booster")
+                 "eglot-booster"))
+  (should (equal (elpacman--vc-spec-name "https://git.example.org/user/example-mode.el")
+                 "example-mode"))
+  (should (equal (elpacman--vc-spec-name "https://codeberg.org/user/some-pkg.git")
+                 "some-pkg"))
+  (should (equal (elpacman--vc-spec-name "git@github.com:foo/bar.git")
+                 "bar")))
 
 (ert-deftest elpacman-test-format-people ()
   "`elpacman--format-people' renders name and email, or just name."
