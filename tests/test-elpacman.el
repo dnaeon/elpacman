@@ -308,6 +308,92 @@ skip is never silent."
                        (elpacman--upgrade-all t))))
          (should-not (string-search "pass --vc" output)))))))
 
+;;;; Unit tests: check and repair
+
+(defmacro elpacman-test--with-broken (&rest body)
+  "Evaluate BODY with a stubbed catalog containing two broken packages.
+Installed: `gone' 1.0, whose directory is missing; `needy' 1.0, whose
+own directory exists but which declares a hard dependency on `dep' 1.0
+that is not installed.  Available: `dep' 1.0 and `gone' 1.0, so both
+problems are repairable.  A real temporary directory backs `needy' so it
+is not itself flagged as missing."
+  `(let ((needy-dir (make-temp-file "elpacman-test-needy-" t)))
+     (unwind-protect
+         (let* ((gone (package-desc-create :name 'gone :version '(1 0)
+                                           :dir "/nonexistent/gone-1.0"))
+                (needy (package-desc-create :name 'needy :version '(1 0)
+                                            :dir needy-dir
+                                            :reqs '((dep (1 0)))))
+                (dep-avail (package-desc-create :name 'dep :version '(1 0)))
+                (gone-avail (package-desc-create :name 'gone :version '(1 0)))
+                (package-alist (list (list 'gone gone) (list 'needy needy)))
+                (package-archive-contents (list (list 'dep dep-avail)
+                                                (list 'gone gone-avail))))
+           ,@body)
+       (delete-directory needy-dir t))))
+
+(ert-deftest elpacman-test-find-problems-missing-dir ()
+  "A package whose directory is gone is reported as a missing-dir problem."
+  (elpacman-test--with-broken
+   (let ((problem (seq-find (lambda (p) (eq (plist-get p :package) 'gone))
+                            (elpacman--find-problems))))
+     (should problem)
+     (should (eq (plist-get problem :kind) 'missing-dir)))))
+
+(ert-deftest elpacman-test-find-problems-missing-dep ()
+  "An unsatisfied dependency is reported as a missing-dep problem."
+  (elpacman-test--with-broken
+   (let ((problem (seq-find (lambda (p) (eq (plist-get p :kind) 'missing-dep))
+                            (elpacman--find-problems))))
+     (should problem)
+     (should (eq (plist-get problem :package) 'needy))
+     (should (eq (plist-get problem :dep) 'dep)))))
+
+(ert-deftest elpacman-test-check-reports-and-fails ()
+  "`check' prints the problems and returns 1 when any are found."
+  (elpacman-test--with-broken
+   (let ((output (elpacman-test-with-output
+                   (should (equal (elpacman-cmd-check nil) 1)))))
+     (should (string-search "gone" output))
+     (should (string-search "needy" output)))))
+
+(ert-deftest elpacman-test-repair-targets ()
+  "Repair targets are the missing dep and the package with a missing dir.
+The dependency `dep' comes from the missing-dep problem and `gone' from
+the missing-dir problem."
+  (elpacman-test--with-broken
+   (let ((targets (elpacman--repair-targets (elpacman--find-problems))))
+     (should (memq 'dep targets))
+     (should (memq 'gone targets))
+     (should-not (memq 'needy targets)))))
+
+(ert-deftest elpacman-test-repair-nothing-to-do ()
+  "`repair' returns 0 and reports nothing to do when no packages are broken."
+  (let ((package-alist nil))
+    (let ((output (elpacman-test-with-output
+                    (should (equal (elpacman-cmd-repair nil) 0)))))
+      (should (string-search "nothing to do" output)))))
+
+(ert-deftest elpacman-test-repair-installs-fixable-targets ()
+  "`repair' feeds the repairable targets through the install path.
+The resolved transaction is installed; the install machinery is stubbed
+so the test stays offline."
+  (let ((elpacman--assume-yes t)
+        (installed nil))
+    (elpacman-test--with-broken
+     (cl-letf (((symbol-function 'elpacman--install-transaction)
+                (lambda (names)
+                  (mapcar (lambda (n) (package-desc-create :name n :version '(1 0)))
+                          names)))
+               ((symbol-function 'elpacman--install-desc)
+                (lambda (desc _n _total)
+                  (push (package-desc-name desc) installed)
+                  t)))
+       (elpacman-test-with-output
+         (should (equal (elpacman-cmd-repair nil) 0)))
+       (should (memq 'dep installed))
+       (should (memq 'gone installed))))))
+
 ;;;; Unit tests: terminal width parsing
 
 (ert-deftest elpacman-test-term-width-valid ()
@@ -871,6 +957,30 @@ the whole transaction is aborted up front, in the manner of `pacman -S'."
       (elpacman-test-with-output
         (package-refresh-contents)
         (elpacman-cmd-install (list elpacman-test-package))
+        (should (equal (elpacman-cmd-check nil) 0))))))
+
+(ert-deftest elpacman-test-integration-repair-reinstalls-missing-dep ()
+  "Breaking a dependency makes `check' fail; `repair' restores it.
+`ace-window' depends on `avy'.  Deleting `avy's directory leaves
+`ace-window' broken; `repair' reinstalls `avy' and `check' passes again."
+  (skip-unless (elpacman-test-integration-p))
+  (elpacman-test-with-sandbox
+    (let ((elpacman--assume-yes t))
+      (elpacman-test-with-output
+        (package-refresh-contents)
+        (elpacman-cmd-install '("ace-window"))
+        (should (package-installed-p 'avy))
+        ;; Break the dependency by removing its files behind package.el's
+        ;; back, then drop it from the in-memory database as well, so the
+        ;; state matches a user who deleted the directory.
+        (let ((dir (package-desc-dir (cadr (assq 'avy package-alist)))))
+          (delete-directory dir t)
+          (setq package-alist (assq-delete-all 'avy package-alist)))
+        ;; `ace-window' now has an unsatisfied dependency.
+        (should (equal (elpacman-cmd-check nil) 1))
+        ;; Repair reinstalls the missing dependency.
+        (should (equal (elpacman-cmd-repair nil) 0))
+        (should (package-installed-p 'avy))
         (should (equal (elpacman-cmd-check nil) 0))))))
 
 (provide 'test-elpacman)
