@@ -21,6 +21,7 @@ _elpacman() {
         'list:List installed packages'
         'outdated:List packages for which an upgrade is available'
         'check:Check for broken packages'
+        'repair:Reinstall broken packages'
         'recompile:Recompile the byte-code of installed packages'
         'autoremove:Remove unused dependency packages'
         'completions:Print a shell completion script'
@@ -54,6 +55,9 @@ _elpacman() {
                 outdated)
                     ;;
                 check)
+                    ;;
+                repair)
+                    _arguments '-y[Do not prompt for confirmation]' '--yes[Do not prompt for confirmation]' '--assume-yes[Do not prompt for confirmation]'
                     ;;
                 recompile)
                     _arguments '-y[Do not prompt for confirmation]' '--yes[Do not prompt for confirmation]' '--assume-yes[Do not prompt for confirmation]'
