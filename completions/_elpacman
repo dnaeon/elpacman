@@ -34,7 +34,7 @@ _elpacman() {
                 update)
                     ;;
                 upgrade)
-                    _arguments '-y[Do not prompt for confirmation]' '--yes[Do not prompt for confirmation]' '--assume-yes[Do not prompt for confirmation]'
+                    _arguments '-y[Do not prompt for confirmation]' '--yes[Do not prompt for confirmation]' '--assume-yes[Do not prompt for confirmation]' '--vc[Also upgrade version-controlled packages]'
                     ;;
                 install)
                     _arguments '-y[Do not prompt for confirmation]' '--yes[Do not prompt for confirmation]' '--assume-yes[Do not prompt for confirmation]' '--vc[Install from a version-control URL]'

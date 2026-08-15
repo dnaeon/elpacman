@@ -20,7 +20,7 @@ _elpacman() {
             opts=""
             ;;
         upgrade)
-            opts="-y --yes --assume-yes"
+            opts="-y --yes --assume-yes --vc"
             ;;
         install)
             opts="-y --yes --assume-yes --vc"
