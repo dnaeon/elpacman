@@ -403,11 +403,11 @@ The optional size line is included when a label is supplied."
   (let* ((a (package-desc-create :name 'alpha :version '(1 0)))
          (b (package-desc-create :name 'beta :version '(2 0)))
          (output (elpacman-test-with-output
-                   (elpacman--preview (list a b) "Total Installed Size:" 2048))))
+                   (elpacman--preview (list a b) "Total Removed Size:" 2048))))
     (should (string-search "Packages (2)" output))
     (should (string-search "alpha-1.0" output))
     (should (string-search "beta-2.0" output))
-    (should (string-search "Total Installed Size:" output))))
+    (should (string-search "Total Removed Size:" output))))
 
 (ert-deftest elpacman-test-preview-counts-extra-tokens ()
   "`elpacman--preview' appends EXTRA-TOKENS and counts them in N.
@@ -687,8 +687,8 @@ the file with unbalanced parentheses."
         ;; The custom-file must remain valid, balanced Emacs Lisp.
         (should (elpacman-test-file-balanced-p custom-file))))))
 
-(ert-deftest elpacman-test-integration-install-reports-size ()
-  "Install and delete show pacman-style size lines and progress."
+(ert-deftest elpacman-test-integration-install-then-delete-reports-freed-size ()
+  "Install shows a package/progress transaction; delete reports freed size."
   (skip-unless (elpacman-test-integration-p))
   (elpacman-test-with-sandbox
     (let ((elpacman--assume-yes t))

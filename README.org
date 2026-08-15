@@ -266,7 +266,10 @@ marked with =(vc)=.
 ** outdated
 
 List packages for which an upgrade is available, showing the installed and
-available versions.  The database is refreshed first.
+available versions.
+
+The local database is not refreshed first; run =elpacman update= when it may be
+out of date.
 
 #+begin_src shell
   elpacman outdated

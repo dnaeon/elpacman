@@ -319,7 +319,7 @@ header followed by `name-version' tokens.  EXTRA-TOKENS is an optional
 list of already-formatted token strings (used for version-controlled
 packages, which have no `package-desc' yet); they are appended to the
 list and counted in N.  When SIZE-LABEL is given and SIZE-BYTES is a
-positive number, a total-size line such as `Total Installed Size:' is
+positive number, a total-size line such as `Total Removed Size:' is
 printed.  The size line is skipped when the size is unknown, so no
 misleading zero is shown (for example, the on-disk size of a
 not-yet-installed package is unknown)."
@@ -553,11 +553,11 @@ may be out of date."
       (let* ((new (seq-remove #'package-installed-p symbols))
              (txn (elpacman--install-transaction new)))
         (when (or txn vc-specs)
-          (elpacman--preview txn "Total Installed Size:"
-                             (apply #'+ (mapcar (lambda (d)
-                                                  (elpacman--dir-size
-                                                   (package-desc-dir d)))
-                                                txn))
+          ;; No size is shown for an install: the on-disk size of a
+          ;; not-yet-installed package is unknown, and reporting it after
+          ;; the fact is of little use.  Size is shown only where it can
+          ;; inform the decision (removals) or on request (`info').
+          (elpacman--preview txn nil nil
                              ;; VC packages are not yet cloned, so they
                              ;; have no `package-desc'; show a derived
                              ;; name with an `@vc' marker.
