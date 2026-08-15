@@ -51,6 +51,7 @@
 ;;   list        -- List installed packages
 ;;   outdated    -- List packages for which an upgrade is available
 ;;   check       -- Check for broken packages
+;;   repair      -- Reinstall broken packages
 ;;   recompile   -- Recompile the byte-code of installed packages
 ;;   autoremove  -- Remove packages that are no longer needed
 ;;   completions -- Print a shell completion script for bash or zsh
@@ -121,6 +122,7 @@ Each element is a cons of the option string and its description.")
     ("list"       nil        "List installed packages")
     ("outdated"   nil        "List packages for which an upgrade is available")
     ("check"      nil        "Check for broken packages")
+    ("repair"     :confirm   "Reinstall broken packages")
     ("recompile"  :confirm   "Recompile the byte-code of installed packages")
     ("autoremove" :confirm   "Remove unused dependency packages")
     ("completions" nil       "Print a shell completion script")
@@ -996,36 +998,125 @@ a non-zero exit status."
 
 ;;;; Sub-command: check
 
-(defun elpacman-cmd-check (_args)
-  "Check installed packages for problems.
-ARGS are ignored.  A package is reported as broken when its installation
-directory is missing, or when one of its declared dependencies is not
-satisfied by an installed package.  Return 0 when no problems are found,
-1 otherwise."
-  (let ((problems 0))
+(defun elpacman--find-problems ()
+  "Return the problems found among the installed packages, as a list.
+Each element is a plist describing one problem:
+
+  (:package NAME :kind missing-dir :dir DIR)
+      the package NAME is registered but its directory DIR is gone;
+
+  (:package NAME :kind missing-dep :dep DEP :version VER)
+      the installed package NAME declares a hard dependency on DEP at
+      version VER (a version list) which no installed package satisfies.
+
+The pseudo-package `emacs' is never reported as a missing dependency.
+This is the detection shared by the `check' and `repair' sub-commands."
+  (let ((problems nil))
     (dolist (desc (elpacman--installed-descs))
       (let* ((name (package-desc-name desc))
              (dir (package-desc-dir desc)))
         ;; A missing directory means the package is registered but its
         ;; files are gone.
         (when (and dir (stringp dir) (not (file-directory-p dir)))
-          (elpacman--err "broken: `%s' directory is missing: %s\n" name dir)
-          (setq problems (1+ problems)))
+          (push (list :package name :kind 'missing-dir :dir dir) problems))
         ;; Every hard dependency, except the pseudo-package `emacs',
         ;; must resolve to an installed package.
         (dolist (req (package-desc-reqs desc))
           (let ((dep (car req)))
             (unless (or (eq dep 'emacs)
                         (package-installed-p dep (cadr req)))
-              (elpacman--err "broken: `%s' requires `%s' %s which is not satisfied\n"
-                             name dep (package-version-join (cadr req)))
-              (setq problems (1+ problems)))))))
-    (if (zerop problems)
+              (push (list :package name :kind 'missing-dep
+                          :dep dep :version (cadr req))
+                    problems))))))
+    (nreverse problems)))
+
+(defun elpacman-cmd-check (_args)
+  "Check installed packages for problems.
+ARGS are ignored.  A package is reported as broken when its installation
+directory is missing, or when one of its declared dependencies is not
+satisfied by an installed package.  Return 0 when no problems are found,
+1 otherwise."
+  (let ((problems (elpacman--find-problems)))
+    (dolist (problem problems)
+      (pcase (plist-get problem :kind)
+        ('missing-dir
+         (elpacman--err "broken: `%s' directory is missing: %s\n"
+                        (plist-get problem :package)
+                        (plist-get problem :dir)))
+        ('missing-dep
+         (elpacman--err "broken: `%s' requires `%s' %s which is not satisfied\n"
+                        (plist-get problem :package)
+                        (plist-get problem :dep)
+                        (package-version-join (plist-get problem :version))))))
+    (if (null problems)
         (progn
           (elpacman--out "No broken packages found.\n")
           0)
-      (elpacman--err "%d problem(s) found.\n" problems)
+      (elpacman--err "%d problem(s) found.\n" (length problems))
       1)))
+
+;;;; Sub-command: repair
+
+(defun elpacman--repair-targets (problems)
+  "Return the package names to reinstall to resolve PROBLEMS, as symbols.
+PROBLEMS is a list as returned by `elpacman--find-problems'.  A missing
+dependency contributes the dependency itself, and a missing directory
+contributes the package whose directory is gone; the result is
+de-duplicated while preserving order."
+  (let ((seen nil)
+        (targets nil))
+    (dolist (problem problems)
+      (let ((name (pcase (plist-get problem :kind)
+                    ('missing-dep (plist-get problem :dep))
+                    ('missing-dir (plist-get problem :package)))))
+        (when (and name (not (memq name seen)))
+          (push name seen)
+          (push name targets))))
+    (nreverse targets)))
+
+(cl-defun elpacman-cmd-repair (_args)
+  "Reinstall packages needed to resolve the problems `check' reports.
+ARGS are ignored.  Missing dependencies are reinstalled, as are
+packages whose own installation directory has gone missing.  The
+resolved transaction is previewed and confirmed before anything is
+installed, in the manner of `install'.
+
+The local package database is not refreshed first; run `update' when a
+target cannot be found and may simply be missing from the local
+database.  Return 0 when every broken package was repaired or the user
+declined, 1 when a target is unavailable in the archives or an install
+failed."
+  (elpacman--out ":: Searching for broken packages...\n")
+  (let ((problems (elpacman--find-problems))
+        (status 0))
+    (when (null problems)
+      (elpacman--out " there is nothing to do\n")
+      (cl-return-from elpacman-cmd-repair 0))
+    ;; Resolve the broken packages to the set of targets to reinstall,
+    ;; then split it into those available in the archives and those that
+    ;; are not.  An unavailable target cannot be repaired, so it is
+    ;; reported and makes the final status non-zero, but it does not stop
+    ;; the repair of the others.
+    (let* ((targets (elpacman--repair-targets problems))
+           (unavailable (seq-remove #'elpacman--available-desc targets))
+           (fixable (seq-filter #'elpacman--available-desc targets)))
+      (dolist (name unavailable)
+        (elpacman--err "error: target not found: %s (try `update')\n" name)
+        (setq status 1))
+      (when fixable
+        (elpacman--out "resolving dependencies...\n")
+        (let ((txn (elpacman--install-transaction fixable)))
+          (when txn
+            (elpacman--preview txn)
+            (unless (elpacman--confirm "Proceed with repair?")
+              (cl-return-from elpacman-cmd-repair status))
+            (let ((total (length txn))
+                  (n 0))
+              (dolist (desc txn)
+                (setq n (1+ n))
+                (unless (elpacman--install-desc desc n total)
+                  (setq status 1))))))))
+    status))
 
 ;;;; Sub-command: recompile
 
@@ -1234,6 +1325,7 @@ Sub-commands:
   list               List installed packages
   outdated           List packages for which an upgrade is available
   check              Check for broken packages
+  repair             Reinstall broken packages
   recompile          Recompile the byte-code of installed packages
   autoremove         Remove unused dependency packages
   completions SHELL  Print a completion script for bash or zsh
@@ -1266,6 +1358,7 @@ ARGS are ignored.  Return 0."
     ("list"       . elpacman-cmd-list)
     ("outdated"   . elpacman-cmd-outdated)
     ("check"      . elpacman-cmd-check)
+    ("repair"     . elpacman-cmd-repair)
     ("recompile"  . elpacman-cmd-recompile)
     ("autoremove" . elpacman-cmd-autoremove)
     ("completions" . elpacman-cmd-completions)
