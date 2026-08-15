@@ -199,16 +199,34 @@ Refresh the local package database from the configured archives.
 
 ** upgrade
 
-Upgrade installed packages.  When invoked without arguments every package for
-which a newer version is available is upgraded.  When one or more package names
-are given, only those packages are upgraded.
-
-Both archive-based and version-controlled packages are considered.
+Upgrade installed packages.  When invoked without arguments every archive
+package for which a newer version is available is upgraded, mirroring what the
+package menu marks with =U=.
 
 #+begin_src shell
   elpacman upgrade
-  elpacman upgrade magit vterm
 #+end_src
+
+Version-controlled packages (those installed with =install --vc=) are refreshed
+from their remote on every run, so including them by default would make them
+perpetual upgrade candidates.  A plain =upgrade= therefore skips them -- but not
+silently: it prints a note naming them and pointing at the =--vc= option.  Pass
+=--vc= to upgrade the archive packages together with the version-controlled
+ones.
+
+#+begin_src shell
+  elpacman upgrade --vc
+#+end_src
+
+Naming a package explicitly always upgrades it, whether it is archive-based or
+version-controlled, so =--vc= is only needed for the upgrade-everything case.
+
+#+begin_src shell
+  elpacman upgrade magit eglot-booster
+#+end_src
+
+The local package database is not refreshed first; run =elpacman update= when it
+may be out of date, in the manner of =pacman -Sy= before =pacman -Su=.
 
 ** install
 
@@ -265,8 +283,10 @@ marked with =(vc)=.
 
 ** outdated
 
-List packages for which an upgrade is available, showing the installed and
-available versions.
+List packages for which an upgrade is available.  For an archive package the
+installed and available versions are shown as =installed -> available=; a
+version-controlled package has no archive target version, so it is shown at its
+current commit and marked =(vc)=.
 
 The local database is not refreshed first; run =elpacman update= when it may be
 out of date.
