@@ -62,6 +62,13 @@
 ;; understood by every sub-command, so that no installed package is
 ;; ever silently skipped.
 ;;
+;; The `upgrade' sub-command upgrades archive packages by default,
+;; matching what the interactive package menu marks with `U'.  A
+;; version-controlled package is refreshed from its remote on every run,
+;; so it is upgraded only when the `--vc' option is given or when it is
+;; named explicitly; a plain `upgrade' notes any it skipped rather than
+;; omitting them silently.
+;;
 ;; The commands that change installed packages (install, upgrade,
 ;; delete and autoremove) first print the list of packages that will
 ;; change and then ask for confirmation, in the manner of `apt' and
@@ -105,7 +112,7 @@ Each element is a cons of the option string and its description.")
 
 (defconst elpacman--command-info
   '(("update"     nil        "Refresh the local package database from the archives")
-    ("upgrade"    :confirm   "Upgrade all packages, or only the named ones")
+    ("upgrade"    :confirm   "Upgrade all packages, or only the named ones" ("--vc" . "Also upgrade version-controlled packages"))
     ("install"    :confirm   "Install one or more packages" ("--vc" . "Install from a version-control URL"))
     ("delete"     :confirm   "Delete one or more installed packages")
     ("remove"     :confirm   "Alias for `delete'")
@@ -276,11 +283,50 @@ string \"vc\" when the commit is unavailable."
    ((elpacman--vc-p desc) (or (elpacman--short-commit desc) "vc"))
    (t (package-version-join (package-desc-version desc)))))
 
+(defun elpacman--archive-newer-p (name)
+  "Return non-nil when the archive has a newer version of NAME than installed.
+NAME is a package symbol.  This is the plain archive-version comparison,
+independent of whether NAME is version-controlled."
+  (let ((installed (elpacman--installed-desc name))
+        (available (elpacman--available-desc name)))
+    (and installed available
+         (version-list-< (package-desc-version installed)
+                         (package-desc-version available)))))
+
+(defun elpacman--archive-upgradeable-names ()
+  "Return the names of archive packages that can be upgraded, as symbols.
+Only packages for which the archives offer a newer version are returned;
+version-controlled packages are excluded.  This is the archive-only
+half of `package--upgradeable-packages' -- the same plain version
+comparison, but without its version-control clause -- and is the set
+`elpacman upgrade' acts on by default.  It is the archive-package
+counterpart to what the package menu marks with `U', though the menu's
+own comparison additionally factors in archive priority."
+  (let (names)
+    (dolist (entry package-alist)
+      (let ((name (car entry)))
+        (when (elpacman--archive-newer-p name)
+          (push name names))))
+    (nreverse names)))
+
 (defun elpacman--upgradeable-names ()
   "Return the names of all packages that can be upgraded, as symbols.
 Both archive-based and VC-installed packages are considered, mirroring
-the behaviour of the interactive `package-upgrade-all' command."
+the behaviour of the interactive `package-upgrade-all' command.  This is
+the set `elpacman upgrade --vc' acts on."
   (package--upgradeable-packages))
+
+(defun elpacman--vc-upgradeable-names ()
+  "Return the names of upgradeable VC packages, as symbols.
+These are the packages that `elpacman upgrade' skips but `elpacman
+upgrade --vc' includes: version-controlled packages, which are refreshed
+from their remote regardless of any archive version."
+  (let (names)
+    (dolist (entry package-alist)
+      (let ((desc (cadr entry)))
+        (when (elpacman--vc-p desc)
+          (push (car entry) names))))
+    (nreverse names)))
 
 ;;;; Confirmation, preview and size helpers
 
@@ -375,18 +421,28 @@ caller as a non-zero exit status."
 
 (defun elpacman-cmd-upgrade (args)
   "Upgrade installed packages.
-When ARGS is empty every upgradeable package is upgraded.  Otherwise
-only the named packages in ARGS are upgraded.  Archive-based and
+When ARGS names no packages every upgradeable package is upgraded;
+otherwise only the named packages are upgraded.  Archive-based and
 VC-installed packages are both handled.
+
+By default only archive packages with a newer version available are
+upgraded, mirroring what the package menu marks with `U'.  A
+version-controlled package is refreshed from its remote unconditionally
+on every run, so including it by default would make it a perpetual
+upgrade candidate; instead it is skipped, with a note, unless the `--vc'
+option is given.  Naming a VC package explicitly always upgrades it,
+`--vc' or not.
 
 The local package database is not refreshed first; run `update' to
 synchronize it, in the manner of `pacman -Sy' before `pacman -Su'.
 
 Return 0 when every upgrade succeeded or the user declined, 1 when a
 named package is not installed or an upgrade failed."
-  (if args
-      (elpacman--upgrade-named (elpacman--intern-names args))
-    (elpacman--upgrade-all)))
+  (let* ((rest (seq-remove (lambda (arg) (string= arg "--vc")) args))
+         (with-vc (not (equal rest args))))
+    (if rest
+        (elpacman--upgrade-named (elpacman--intern-names rest))
+      (elpacman--upgrade-all with-vc))))
 
 (defun elpacman--short-commit (desc)
   "Return the abbreviated commit of the VC package DESC, or nil.
@@ -419,24 +475,47 @@ package at the version it will be upgraded to."
     (elpacman--out "\nPackages (%d) %s\n"
                    (length names) (string-join tokens "  "))))
 
-(defun elpacman--upgrade-all ()
-  "Upgrade every package for which a newer version is available.
-The upgrade transaction is previewed and confirmed first.  Return 0
-when all upgrades succeeded or the user declined, 1 when at least one
-upgrade failed."
+(defun elpacman--upgrade-all (with-vc)
+  "Upgrade every package for which an upgrade is available.
+When WITH-VC is non-nil, version-controlled packages are refreshed from
+their remotes as well; otherwise only archive packages are upgraded and
+any upgradeable VC packages are skipped with a note.  The upgrade
+transaction is previewed and confirmed first.  Return 0 when all
+upgrades succeeded or the user declined, 1 when at least one upgrade
+failed."
   (elpacman--out ":: Starting package upgrade...\n")
-  (let ((names (elpacman--upgradeable-names)))
+  (let ((names (if with-vc
+                   (elpacman--upgradeable-names)
+                 (elpacman--archive-upgradeable-names))))
     (cond
      ((null names)
       (elpacman--out " there is nothing to do\n")
+      ;; Even with nothing to upgrade, point out any VC packages that a
+      ;; plain `upgrade' left untouched, so the skip is never silent.
+      (unless with-vc
+        (elpacman--note-skipped-vc))
       0)
      (t
       (elpacman--preview-upgrades names)
+      (unless with-vc
+        (elpacman--note-skipped-vc))
       (cond
        ((not (elpacman--confirm "Proceed with upgrade?"))
         0)
        (t
         (elpacman--upgrade-each names)))))))
+
+(defun elpacman--note-skipped-vc ()
+  "Print a note about VC packages that a plain `upgrade' skips.
+Does nothing when there are no upgradeable version-controlled packages.
+This keeps the default `upgrade' from silently omitting them: it names
+them and points at the `--vc' option that would include them."
+  (let ((vc (elpacman--vc-upgradeable-names)))
+    (when vc
+      (elpacman--out
+       "note: %d version-controlled package(s) skipped; pass --vc to include them: %s\n"
+       (length vc)
+       (mapconcat #'symbol-name vc "  ")))))
 
 (defun elpacman--upgrade-named (names)
   "Upgrade only the packages in NAMES, a list of symbols.
@@ -1145,6 +1224,8 @@ Sub-commands:
 
 Options:
   -y, --yes, --assume-yes   Do not prompt for confirmation
+  --vc                      With `upgrade', also upgrade version-controlled
+                            packages (skipped by default)
 "
   "The usage text printed by the `help' sub-command.")
 
