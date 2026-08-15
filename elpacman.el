@@ -241,9 +241,17 @@ turn.  This is a helper for `elpacman--with-progress'."
 (defun elpacman--init ()
   "Initialize the package system and load the archive contents.
 This must run before any sub-command that inspects or mutates the set
-of installed or available packages."
+of installed or available packages.
+
+When `elpacman' loads the user's init files (the default), those files
+have usually already run `package-initialize'; calling it again would
+re-activate every package and repeat any activation warnings, so it is
+skipped when `package--initialized' is already set.  Under `emacs -Q'
+\(`ELPACMAN_NO_INIT') nothing has initialized the package system, so the
+call is made here."
   (setq elpacman--term-width (or (elpacman--term-width) 0))
-  (package-initialize)
+  (unless (bound-and-true-p package--initialized)
+    (package-initialize))
   (package-read-all-archive-contents))
 
 (defun elpacman--intern-names (names)
