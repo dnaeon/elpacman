@@ -250,6 +250,15 @@ of installed or available packages."
   "Return NAMES, a list of strings, as a list of interned symbols."
   (mapcar #'intern names))
 
+(defun elpacman--take-flag (flag args)
+  "Remove every occurrence of FLAG from ARGS.
+FLAG is an option string such as `--vc'.  Return a cons cell whose car
+is non-nil when FLAG was present in ARGS and whose cdr is ARGS with all
+occurrences of FLAG removed."
+  (let* ((rest (seq-remove (lambda (arg) (string= arg flag)) args))
+         (present (not (equal rest args))))
+    (cons present rest)))
+
 (defun elpacman--installed-descs ()
   "Return the `package-desc' objects for all installed packages.
 The result is sorted alphabetically by package name."
@@ -438,8 +447,9 @@ synchronize it, in the manner of `pacman -Sy' before `pacman -Su'.
 
 Return 0 when every upgrade succeeded or the user declined, 1 when a
 named package is not installed or an upgrade failed."
-  (let* ((rest (seq-remove (lambda (arg) (string= arg "--vc")) args))
-         (with-vc (not (equal rest args))))
+  (let* ((parsed (elpacman--take-flag "--vc" args))
+         (with-vc (car parsed))
+         (rest (cdr parsed)))
     (if rest
         (elpacman--upgrade-named (elpacman--intern-names rest))
       (elpacman--upgrade-all with-vc))))
@@ -1284,11 +1294,11 @@ As a side effect, `elpacman--assume-yes' is set when any of `-y',
   (let ((env (getenv "ELPACMAN_ASSUME_YES")))
     (when (and env (not (string-empty-p env)))
       (setq elpacman--assume-yes t)))
-  (let ((options '("-y" "--yes" "--assume-yes")))
-    (seq-remove (lambda (arg)
-                  (when (member arg options)
-                    (setq elpacman--assume-yes t)))
-                args)))
+  (dolist (flag '("-y" "--yes" "--assume-yes") args)
+    (let ((parsed (elpacman--take-flag flag args)))
+      (when (car parsed)
+        (setq elpacman--assume-yes t))
+      (setq args (cdr parsed)))))
 
 (defun elpacman--dispatch (args)
   "Dispatch to the sub-command handler selected by ARGS.

@@ -95,6 +95,27 @@ string, so that the printed output can be inspected."
   "A trailing separator yields an empty argument list."
   (should (equal (elpacman--strip-separator '("--")) nil)))
 
+;;;; Unit tests: flag extraction
+
+(ert-deftest elpacman-test-take-flag-present ()
+  "A present flag is reported and removed from the arguments."
+  (should (equal (elpacman--take-flag "--vc" '("--vc" "magit"))
+                 '(t . ("magit")))))
+
+(ert-deftest elpacman-test-take-flag-absent ()
+  "An absent flag is not reported and the arguments are unchanged."
+  (should (equal (elpacman--take-flag "--vc" '("magit" "vterm"))
+                 '(nil . ("magit" "vterm")))))
+
+(ert-deftest elpacman-test-take-flag-repeated ()
+  "Every occurrence of the flag is removed, and presence is reported once."
+  (should (equal (elpacman--take-flag "--vc" '("--vc" "magit" "--vc"))
+                 '(t . ("magit")))))
+
+(ert-deftest elpacman-test-take-flag-empty ()
+  "An empty argument list yields absence and an empty list."
+  (should (equal (elpacman--take-flag "--vc" nil) '(nil))))
+
 ;;;; Unit tests: dispatch
 
 (ert-deftest elpacman-test-dispatch-unknown-command ()
