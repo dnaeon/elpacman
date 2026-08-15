@@ -19,7 +19,7 @@ A summary of the features supported by =elpacman= is provided below.
   install, upgrade or removal, just like =pacman=
 - Search the archives and inspect detailed package information
 - List installed and outdated packages
-- Check for broken packages
+- Check for broken packages, and repair them by reinstalling what is missing
 - Recompile the byte-code of installed packages, e.g. after an Emacs upgrade
 - Remove packages that are no longer needed
 - Generates bash and zsh completions from its own command table
@@ -304,6 +304,21 @@ not satisfied by an installed package.
 #+begin_src shell
   elpacman check
 #+end_src
+
+** repair
+
+Reinstall the packages needed to resolve the problems that =check= reports: any
+missing dependency is reinstalled, and any package whose own installation
+directory has gone missing is reinstalled too.  The resolved transaction is
+previewed and confirmed before anything is installed, just like =install=.
+
+#+begin_src shell
+  elpacman repair
+#+end_src
+
+The local database is not refreshed first; if a target cannot be found it may
+simply be missing from the local database, so run =elpacman update= and try
+again.  Pass =-y= / =--yes= to skip the confirmation prompt.
 
 ** recompile
 
