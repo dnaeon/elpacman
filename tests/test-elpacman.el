@@ -204,6 +204,89 @@ back to `NAME@vc'."
     (cl-letf (((symbol-function 'package-vc-commit) (lambda (_) nil)))
       (should (equal (elpacman--upgrade-token 'demo) "demo@vc")))))
 
+;;;; Unit tests: upgrade set selection
+
+(defun elpacman-test--desc (name version &optional vc)
+  "Return a `package-desc' for NAME at VERSION, VC-installed when VC.
+This is a helper for the upgrade-set tests."
+  (let ((desc (package-desc-create :name name :version version)))
+    (when vc
+      (setf (package-desc-kind desc) 'vc))
+    desc))
+
+(defmacro elpacman-test--with-catalog (&rest body)
+  "Evaluate BODY with a stubbed installed and available package catalog.
+Installed: `arch' 1.0 (archive), `vc-pkg' (version-controlled), `same'
+1.0 (archive, up to date).  Available: `arch' 2.0 (upgradeable), `same'
+1.0.  `elpacman--vc-p' is honoured through the descs' kind slot."
+  `(let* ((arch-inst (elpacman-test--desc 'arch '(1 0)))
+          (arch-avail (elpacman-test--desc 'arch '(2 0)))
+          (vc-inst (elpacman-test--desc 'vc-pkg '(0) t))
+          (same-inst (elpacman-test--desc 'same '(1 0)))
+          (same-avail (elpacman-test--desc 'same '(1 0)))
+          (package-alist (list (list 'arch arch-inst)
+                               (list 'vc-pkg vc-inst)
+                               (list 'same same-inst)))
+          (package-archive-contents (list (list 'arch arch-avail)
+                                          (list 'same same-avail))))
+     (cl-letf (((symbol-function 'package-vc-p)
+                (lambda (desc) (eq (package-desc-kind desc) 'vc))))
+       ,@body)))
+
+(ert-deftest elpacman-test-archive-upgradeable-excludes-vc ()
+  "`elpacman--archive-upgradeable-names' lists only archive upgrades.
+The version-controlled package is excluded even though it is upgradeable
+in the VC sense, and the up-to-date archive package is not listed."
+  (elpacman-test--with-catalog
+   (should (equal (elpacman--archive-upgradeable-names) '(arch)))))
+
+(ert-deftest elpacman-test-vc-upgradeable-lists-vc ()
+  "`elpacman--vc-upgradeable-names' lists the version-controlled packages."
+  (elpacman-test--with-catalog
+   (should (equal (elpacman--vc-upgradeable-names) '(vc-pkg)))))
+
+(ert-deftest elpacman-test-upgrade-routes-with-vc-option ()
+  "The `--vc' option routes upgrade to the VC-inclusive set.
+Without it the archive-only set is used; with it the full set is."
+  (let (captured)
+    (cl-letf (((symbol-function 'elpacman--upgrade-all)
+               (lambda (with-vc) (setq captured with-vc) 0)))
+      (elpacman-cmd-upgrade '())
+      (should-not captured)
+      (elpacman-cmd-upgrade '("--vc"))
+      (should captured))))
+
+(ert-deftest elpacman-test-upgrade-named-ignores-vc-option ()
+  "A named upgrade dispatches by name regardless of the `--vc' option.
+Naming a package always upgrades it, so the option only governs the
+unnamed, upgrade-everything case."
+  (let (captured)
+    (cl-letf (((symbol-function 'elpacman--upgrade-named)
+               (lambda (names) (setq captured names) 0)))
+      (elpacman-cmd-upgrade '("magit"))
+      (should (equal captured '(magit)))
+      ;; The `--vc' token is stripped, not treated as a package name.
+      (elpacman-cmd-upgrade '("--vc" "magit"))
+      (should (equal captured '(magit))))))
+
+(ert-deftest elpacman-test-upgrade-all-notes-skipped-vc ()
+  "A plain `upgrade' notes the VC packages it skipped, and `--vc' does not.
+The note names the packages and points at the `--vc' option, so the
+skip is never silent."
+  (let ((elpacman--assume-yes t))
+    (elpacman-test--with-catalog
+     ;; Without `--vc': the archive package is previewed and the VC
+     ;; package is noted as skipped.
+     (cl-letf (((symbol-function 'elpacman--upgrade-each) (lambda (_) 0)))
+       (let ((output (elpacman-test-with-output
+                       (elpacman--upgrade-all nil))))
+         (should (string-search "vc-pkg" output))
+         (should (string-search "--vc" output)))
+       ;; With `--vc': the VC package is included, so there is no note.
+       (let ((output (elpacman-test-with-output
+                       (elpacman--upgrade-all t))))
+         (should-not (string-search "pass --vc" output)))))))
+
 ;;;; Unit tests: terminal width parsing
 
 (ert-deftest elpacman-test-term-width-valid ()
