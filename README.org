@@ -43,15 +43,15 @@ Because a command-line tool makes package management /scriptable/.  It runs
 without opening an interactive Emacs session, which is exactly what you want in
 situations such as these.
 
-- *CI/CD pipelines* -- install the packages a job needs, or verify that
-  your configuration's packages still install and byte-compile cleanly,
-  as an ordinary build step.
-- *Dotfiles bootstrap* -- bring a fresh machine's Emacs up to date with a
-  single command in your setup script.
-- *Scheduled upgrades* -- run =elpacman upgrade --yes= from =cron= or a
-  timer to keep packages current unattended.
-- *One-shot installs* -- add a package from the shell without leaving
-  your current context, then carry on.
+- *CI/CD pipelines* -- install the packages a job needs, or verify that your
+  configuration's packages still install and byte-compile cleanly, as an
+  ordinary build step.
+- *Dotfiles bootstrap* -- bring a fresh machine's Emacs up to date with a single
+  command in your setup script.
+- *Scheduled upgrades* -- run =elpacman upgrade --yes= from =cron= or a timer to
+  keep packages current unattended.
+- *One-shot installs* -- add a package from the shell without leaving your
+  current context, then carry on.
 
 Every sub-command returns a meaningful exit status, so failures are easy to
 detect in scripts.
@@ -60,8 +60,8 @@ detect in scripts.
 
 - GNU Emacs 29.1 or newer (uses =package-vc= and =package-upgrade=)
 - =bash=
-- GNU coreutils (for =readlink -f=).  Present by default on Linux; on
-  macOS install it with =brew install coreutils=.
+- GNU coreutils (for =readlink -f=).  Present by default on Linux; on macOS
+  install it with =brew install coreutils=.
 - =tput= (optional, used only for output trimming)
 
 * Installation
@@ -174,8 +174,8 @@ and then ask for confirmation before doing anything, styled after =pacman=.
   :: Proceed with upgrade? [Y/n]
 #+end_src
 
-Pass =-y=, =--yes= or =--assume-yes= to skip the prompt, which is what
-you want in scripts and CI.
+Pass =-y=, =--yes= or =--assume-yes= to skip the prompt, which is what you want
+in scripts and CI.
 
 #+begin_src shell
   elpacman upgrade --yes
@@ -407,6 +407,91 @@ see your configured archives or installed packages, so it is only useful for
 
 #+begin_src shell
   ELPACMAN_NO_INIT=1 elpacman help
+#+end_src
+
+* GitHub Actions
+
+=elpacman= is designed to run unattended, which makes it a natural fit for a
+CI/CD pipeline such as a GitHub Actions workflow: a job can install the packages
+it needs, or verify that a configuration's packages still install and
+byte-compile cleanly, as an ordinary build step.  There is nothing to package --
+=elpacman= is a self-contained shell wrapper, so a job just needs Emacs on the
+=PATH= and a checkout of this repository.
+
+Two things matter when running in a pipeline.
+
+- Pass =--yes= (or set =ELPACMAN_ASSUME_YES=1=) on every command that changes
+  packages.  Without it, and with no controlling terminal, =elpacman= refuses to
+  guess and exits non-zero rather than hanging or proceeding without consent.
+- Rely on the exit status.  Every sub-command returns a meaningful code (see
+  [[*Exit Status][Exit Status]]), so a failed install, a broken package or a failed upgrade
+  fails the job.
+
+The following GitHub Actions workflow installs Emacs, puts =elpacman= on the
+=PATH= and uses it as a build step.  It installs some packages and then checks
+that nothing is broken.
+
+#+begin_src yaml
+  name: packages
+  on: [ push, pull_request ]
+  jobs:
+    packages:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Install Emacs
+          uses: purcell/setup-emacs@v8.0
+          with:
+            version: '30.2'
+
+        - name: Install elpacman
+          run: |
+            git clone --depth 1 https://github.com/dnaeon/elpacman.git
+            echo "${PWD}/elpacman" >> "${GITHUB_PATH}"
+
+        - name: Install packages
+          run: elpacman install --yes magit vterm
+
+        - name: Verify nothing is broken
+          run: elpacman check
+#+end_src
+
+By default =elpacman= loads the invoking user's init files, which on a runner
+are unlikely to exist.  For a job that only needs =help=, =version= or other
+commands that do not touch the package system, set =ELPACMAN_NO_INIT=1= to run
+against a clean Emacs.
+
+For a job that installs or queries packages, provide a configuration the
+runner's user picks up (for example a checked-in =~/.emacs.d/init.el= that
+registers the archives you need), so that =elpacman= sees the same archives and
+package directory your project expects.
+
+A scheduled workflow can keep a configuration's packages current by running the
+upgrade unattended.  The =update= step refreshes the local database first, in
+the manner of =pacman -Sy= before =pacman -Su=.
+
+#+begin_src yaml
+  name: upgrade
+  on:
+    schedule:
+      - cron: '17 4 * * 1'
+  jobs:
+    upgrade:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Install Emacs
+          uses: purcell/setup-emacs@v8.0
+          with:
+            version: '30.2'
+
+        - name: Install elpacman
+          run: |
+            git clone --depth 1 https://github.com/dnaeon/elpacman.git
+            echo "${PWD}/elpacman" >> "${GITHUB_PATH}"
+
+        - name: Upgrade packages
+          run: |
+            elpacman update
+            elpacman upgrade --yes
 #+end_src
 
 * Shell completion
