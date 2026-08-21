@@ -54,6 +54,15 @@
 #                           init files.  Mainly useful for testing.
 #   * ELPACMAN_ASSUME_YES -- When non-empty, assume "yes" to all
 #                           confirmation prompts, as if `--yes' was given.
+#   * ELPACMAN_TTY        -- Whether output is going to a terminal.  Auto-
+#                           detected (non-empty when both stdin and stdout
+#                           are terminals) and used to decide whether to
+#                           prompt for confirmation and whether to animate
+#                           progress on a single line.  An explicit value
+#                           from the environment wins over auto-detection:
+#                           set it empty to force non-interactive, plain
+#                           output (e.g. in scripts or cron), or to `1' to
+#                           force interactive behaviour.
 
 set -euo pipefail
 
@@ -103,7 +112,7 @@ main() {
     else
         tty=""
     fi
-    export ELPACMAN_TTY="${tty}"
+    export ELPACMAN_TTY="${ELPACMAN_TTY-${tty}}"
 
     # `--script' already implies batch mode.  We pass the sub-command and its
     # arguments after `--' so that Emacs leaves them untouched in
