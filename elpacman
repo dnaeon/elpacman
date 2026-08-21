@@ -96,10 +96,10 @@ main() {
         init_args=( "-u" "${USER}" )
     fi
 
-    # Export the terminal width so that the core can trim its progress output to
-    # fit.  `stty' fails when there is no controlling terminal, hence the
-    # fallback to an empty value.
-    columns="$( stty size 2>/dev/null | cut -d ' ' -f 2 )"
+    # Export the terminal width so the core can trim its progress output to
+    # fit.  Guard against environments with no controlling terminal, where
+    # `stty' fails and the `:-80' fallback applies.
+    columns="$( stty size 2>/dev/null | cut -d ' ' -f 2 || true )"
     columns="${columns:-80}"
     export COLUMNS="${columns}"
 
