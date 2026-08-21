@@ -445,11 +445,21 @@ including the prefix and the control sequences."
   "Messages captured by `elpacman--with-progress' carry the prefix.
 This guards against the prefix being dropped when the helper binding is
 not visible where the line is drawn."
-  (let ((elpacman--term-width 200))
+  (let ((elpacman--term-width 200)
+        (process-environment (cons "ELPACMAN_TTY=1" process-environment)))
     (let ((output (elpacman-test-with-raw-output
-                    (elpacman--with-progress "demo: "
+                   (elpacman--with-progress "demo: "
                       (message "working")))))
       (should (string-search "demo: working" output)))))
+
+(ert-deftest elpacman-test-progress-no-tty ()
+  "When running without a controlling terminal (ELPACMAN_TTY is not set or empty),
+then `elpacman--with-progress' does not emit the one-line progress animation."
+  (let ((process-environment (cons "ELPACMAN_TTY=" process-environment)))
+    (let ((output (elpacman-test-with-raw-output
+                   (elpacman--with-progress "demo: "
+                      (message "not working")))))
+      (should (string-empty-p output)))))
 
 (ert-deftest elpacman-test-progress-dumps-on-error ()
   "When the body signals, the captured messages are dumped to stderr."
