@@ -185,19 +185,28 @@ When the terminal width is unknown STR is returned unchanged."
   "Evaluate BODY while rendering captured messages on a single line.
 
 Any message emitted through `message' or `princ' while BODY runs is
-prefixed with PREFIX and drawn on the current line, overwriting the
-previous message.  The line is cleared once BODY returns.
+captured, prefixed with PREFIX and, on a terminal, drawn on the current
+line, overwriting the previous message.  The line is cleared once BODY
+returns.
+
+With no controlling terminal (a pipe, file or cron job -- see
+`elpacman--interactive-p') the single-line animation is skipped
+entirely: its carriage returns and ANSI escapes would only leak raw
+bytes into the captured output.  Messages are still captured, so a
+failure is reported in full either way.
 
 When BODY signals an error the captured messages are dumped verbatim,
 one per line, as they usually point at the cause of the failure."
   (declare (indent 1))
   `(let ((elpacman--progress-prefix ,prefix)
-         (elpacman--progress-log nil))
+         (elpacman--progress-log nil)
+         (elpacman--progress-tty (elpacman--interactive-p)))
      (cl-letf (((symbol-function 'message)
                 (lambda (&rest args)
                   (let ((msg (if (car args) (apply #'format-message args) "")))
                     (push msg elpacman--progress-log)
-                    (elpacman--progress-draw elpacman--progress-prefix msg)
+                    (when elpacman--progress-tty
+                      (elpacman--progress-draw elpacman--progress-prefix msg))
                     msg)))
                ((symbol-function 'princ)
                 (lambda (obj &optional stream)
@@ -211,16 +220,18 @@ one per line, as they usually point at the cause of the failure."
                       (funcall elpacman--princ obj stream)
                     (let ((msg (if (stringp obj) obj (prin1-to-string obj))))
                       (push msg elpacman--progress-log)
-                      (elpacman--progress-draw elpacman--progress-prefix msg)
+                      (when elpacman--progress-tty
+                        (elpacman--progress-draw elpacman--progress-prefix msg))
                       obj)))))
        (unwind-protect
            (prog1 (progn ,@body)
              ;; Success.  Drop the log so nothing is dumped below.
              (setq elpacman--progress-log nil))
-         ;; Always clear the progress line.
-         (funcall elpacman--princ
-                  (format "\r%s" elpacman--clear-seq))
-         (flush-standard-output)
+         ;; Clear the progress line -- only meaningful when we drew one.
+         (when elpacman--progress-tty
+           (funcall elpacman--princ
+                    (format "\r%s" elpacman--clear-seq))
+           (flush-standard-output))
          ;; On failure, dump everything that was captured.
          (when elpacman--progress-log
            (dolist (msg (nreverse elpacman--progress-log))
@@ -230,7 +241,8 @@ one per line, as they usually point at the cause of the failure."
 (defun elpacman--progress-draw (prefix msg)
   "Draw MSG on the current line, prefixed with PREFIX and trimmed.
 MSG may contain newlines, in which case each non-empty line is drawn in
-turn.  This is a helper for `elpacman--with-progress'."
+turn.  This is a helper for `elpacman--with-progress', called only when
+output is going to a terminal."
   (dolist (line (save-match-data (split-string msg "\n")))
     (unless (string-empty-p line)
       (let ((text (elpacman--trim (concat prefix line))))
@@ -352,9 +364,12 @@ from their remote regardless of any archive version."
 (define-error 'elpacman-aborted "Operation aborted")
 
 (defun elpacman--interactive-p ()
-  "Return non-nil when it is safe to prompt the user for confirmation.
-Emacs batch mode cannot determine this on its own, so the `elpacman'
-wrapper detects it and exports the `ELPACMAN_TTY' environment variable."
+  "Return non-nil when `elpacman' is attached to a terminal.
+This gates both whether it is safe to prompt for confirmation and
+whether progress is animated on a single line.  Emacs batch mode cannot
+determine this on its own, so the `elpacman' wrapper detects it and
+exports the `ELPACMAN_TTY' environment variable; an explicit value in
+the environment overrides the wrapper's auto-detection."
   (let ((tty (getenv "ELPACMAN_TTY")))
     (and tty (not (string-empty-p tty)))))
 
