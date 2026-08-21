@@ -381,6 +381,13 @@ environment.
   useful for testing.
 - =ELPACMAN_ASSUME_YES= -- When set to a non-empty value, assume "yes" to every
   confirmation prompt, as if =--yes= had been given.
+- =ELPACMAN_TTY= -- Whether =elpacman='s output is going to a terminal.  It is
+  auto-detected (non-empty when both the standard input and the standard output
+  are terminals) and controls whether =elpacman= prompts for confirmation and
+  whether it animates progress on a single, self-overwriting line.  An explicit
+  value from the environment takes precedence over auto-detection: set it to an
+  empty value to force non-interactive, plain output, which is useful in scripts
+  and cron jobs.
 
 The =elpacman= wrapper follows a simple naming convention for its shell
 variables.  Uppercase variables (such as those above) are the interface and are
