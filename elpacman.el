@@ -219,7 +219,7 @@ one per line, as they usually point at the cause of the failure."
              (setq elpacman--progress-log nil))
          ;; Always clear the progress line.
          (funcall elpacman--princ
-                  (format "%s\r" elpacman--clear-seq))
+                  (format "\r%s" elpacman--clear-seq))
          (flush-standard-output)
          ;; On failure, dump everything that was captured.
          (when elpacman--progress-log
@@ -235,7 +235,7 @@ turn.  This is a helper for `elpacman--with-progress'."
     (unless (string-empty-p line)
       (let ((text (elpacman--trim (concat prefix line))))
         (funcall elpacman--princ
-                 (format "%s%s\r" elpacman--clear-seq text))
+                 (format "\r%s%s" elpacman--clear-seq text))
         (flush-standard-output)))))
 
 ;;;; Package system helpers
