@@ -673,6 +673,49 @@ is not called."
                       (should (equal (elpacman-cmd-list nil) 0)))))
         (should (string-search "demo e6daa6b (vc)" output))))))
 
+;;;; Unit tests: files
+
+(ert-deftest elpacman-test-files-requires-argument ()
+  "Requesting files with no package name returns 2 and reports an error."
+  (let ((output (elpacman-test-with-output
+                  (should (equal (elpacman-cmd-files nil) 2)))))
+    (should (string-search "requires a package name" output))))
+
+(ert-deftest elpacman-test-files-not-installed ()
+  "Requesting files for a package that is not installed returns 1."
+  (cl-letf (((symbol-function 'elpacman--installed-desc) (lambda (_) nil)))
+    (let ((output (elpacman-test-with-output
+                    (should (equal (elpacman-cmd-files '("demo")) 1)))))
+      (should (string-search "not installed" output)))))
+
+(ert-deftest elpacman-test-files-missing-dir ()
+  "A package whose installation directory is gone returns 1."
+  (let ((desc (package-desc-create :name 'demo :version '(1 0)
+                                   :dir "/nonexistent/demo-1.0")))
+    (cl-letf (((symbol-function 'elpacman--installed-desc) (lambda (_) desc)))
+      (let ((output (elpacman-test-with-output
+                      (should (equal (elpacman-cmd-files '("demo")) 1)))))
+        (should (string-search "directory is missing" output))))))
+
+(ert-deftest elpacman-test-files-lists-files ()
+  "`files' prints each file under the package directory as `NAME PATH'."
+  (let ((dir (make-temp-file "elpacman-files-" t)))
+    (unwind-protect
+        (let* ((file-a (expand-file-name "demo.el" dir))
+               (file-b (expand-file-name "demo-core.el" dir))
+               (desc (package-desc-create :name 'demo :version '(1 0)
+                                          :dir dir)))
+          (with-temp-file file-a (insert ";; a"))
+          (with-temp-file file-b (insert ";; b"))
+          (cl-letf (((symbol-function 'elpacman--installed-desc)
+                     (lambda (_) desc)))
+            (let ((output (elpacman-test-with-output
+                            (should (equal (elpacman-cmd-files '("demo")) 0)))))
+              ;; Each file is listed on its own line, prefixed by the name.
+              (should (string-search (format "demo %s" file-a) output))
+              (should (string-search (format "demo %s" file-b) output)))))
+      (delete-directory dir t))))
+
 ;;;; Unit tests: info helpers
 
 (ert-deftest elpacman-test-vc-spec-name ()
@@ -950,6 +993,23 @@ the whole transaction is aborted up front, in the manner of `pacman -S'."
                                     (list elpacman-test-package))
                                    0)))))
       (should (string-search elpacman-test-package output)))))
+
+(ert-deftest elpacman-test-integration-files ()
+  "`files' lists the files of a freshly installed package.
+The installed package's own `.el' file must appear, prefixed by the
+package name."
+  (skip-unless (elpacman-test-integration-p))
+  (elpacman-test-with-sandbox
+    (let ((elpacman--assume-yes t))
+      (elpacman-test-with-output
+        (package-refresh-contents)
+        (should (equal (elpacman-cmd-install (list elpacman-test-package)) 0)))
+      (let ((output (elpacman-test-with-output
+                      (should (equal (elpacman-cmd-files
+                                      (list elpacman-test-package))
+                                     0)))))
+        (should (string-search elpacman-test-package output))
+        (should (string-search ".el" output))))))
 
 (ert-deftest elpacman-test-integration-update ()
   "The `update' sub-command refreshes the database and returns 0."
