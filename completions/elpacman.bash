@@ -5,7 +5,7 @@ _elpacman() {
     local cur cword
     _init_completion || return
 
-    local commands="update upgrade install delete remove search info list outdated check repair recompile autoremove completions version help"
+    local commands="update upgrade install delete remove search info list files outdated check repair recompile autoremove completions version help"
 
     if [ "${cword}" -eq 1 ]; then
         mapfile -t COMPREPLY < <(compgen -W "${commands}" -- "${cur}")
@@ -38,6 +38,9 @@ _elpacman() {
             opts=""
             ;;
         list)
+            opts=""
+            ;;
+        files)
             opts=""
             ;;
         outdated)

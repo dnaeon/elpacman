@@ -49,6 +49,7 @@
 ;;   search      -- Search the archives for packages
 ;;   info        -- Show detailed information about a package
 ;;   list        -- List installed packages
+;;   files       -- List the files owned by an installed package
 ;;   outdated    -- List packages for which an upgrade is available
 ;;   check       -- Check for broken packages
 ;;   repair      -- Reinstall broken packages
@@ -120,6 +121,7 @@ Each element is a cons of the option string and its description.")
     ("search"     nil        "Search the archives for packages")
     ("info"       nil        "Show detailed information about a package")
     ("list"       nil        "List installed packages")
+    ("files"      nil        "List the files owned by an installed package")
     ("outdated"   nil        "List packages for which an upgrade is available")
     ("check"      nil        "Check for broken packages")
     ("repair"     :confirm   "Reinstall broken packages")
@@ -983,6 +985,35 @@ and are tagged with `(vc)'.  ARGS are ignored.  Return 0."
       (elpacman--out "\n%d package(s) installed.\n" (length descs)))
     0))
 
+;;;; Sub-command: files
+
+(cl-defun elpacman-cmd-files (args)
+  "List the files owned by the installed package named in ARGS.
+Only the first element of ARGS is used.  This is the equivalent of
+`pacman -Ql': each file is printed on its own line as `NAME PATH', where
+PATH is the absolute path of a file under the package's installation
+directory.  Only installed packages have files on disk, so a package
+that is not installed is an error.  Return 0 on success, 1 when the
+package is not installed or its files are missing, and 2 on a usage
+error such as a missing package name."
+  (unless args
+    (elpacman--err "error: files requires a package name\n")
+    (cl-return-from elpacman-cmd-files 2))
+  (let* ((name (intern (car args)))
+         (desc (elpacman--installed-desc name)))
+    (unless desc
+      (elpacman--err "error: package not installed: %s\n" name)
+      (cl-return-from elpacman-cmd-files 1))
+    (let ((dir (package-desc-dir desc)))
+      ;; A registered package whose directory is gone has no files to
+      ;; list; report it as broken, in the manner of `check'.
+      (unless (and dir (stringp dir) (file-directory-p dir))
+        (elpacman--err "error: `%s' directory is missing: %s\n" name (or dir "-"))
+        (cl-return-from elpacman-cmd-files 1))
+      (dolist (file (sort (directory-files-recursively dir "" nil) #'string<))
+        (elpacman--out "%s %s\n" name file))
+      0)))
+
 ;;;; Sub-command: outdated
 
 (defun elpacman-cmd-outdated (_args)
@@ -1338,6 +1369,7 @@ Sub-commands:
   search TERM...     Search the archives for packages
   info PKG           Show detailed information about a package
   list               List installed packages
+  files PKG          List the files owned by an installed package
   outdated           List packages for which an upgrade is available
   check              Check for broken packages
   repair             Reinstall broken packages
@@ -1371,6 +1403,7 @@ ARGS are ignored.  Return 0."
     ("search"     . elpacman-cmd-search)
     ("info"       . elpacman-cmd-info)
     ("list"       . elpacman-cmd-list)
+    ("files"      . elpacman-cmd-files)
     ("outdated"   . elpacman-cmd-outdated)
     ("check"      . elpacman-cmd-check)
     ("repair"     . elpacman-cmd-repair)

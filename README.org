@@ -18,7 +18,7 @@ A summary of the features supported by =elpacman= is provided below.
 - Previews the packages that will change and asks for confirmation before
   install, upgrade or removal, just like =pacman=
 - Search the archives and inspect detailed package information
-- List installed and outdated packages
+- List installed and outdated packages, and the files a package owns
 - Check for broken packages, and repair them by reinstalling what is missing
 - Recompile the byte-code of installed packages, e.g. after an Emacs upgrade
 - Remove packages that are no longer needed
@@ -279,6 +279,17 @@ marked with =(vc)=.
 
 #+begin_src shell
   elpacman list
+#+end_src
+
+** files
+
+List the files owned by an installed package, in the manner of =pacman -Ql=.
+Each file is printed on its own line as =name /absolute/path=, so the output is
+easy to grep.  Only installed packages have files on disk, so listing the files
+of a package that is not installed is an error.
+
+#+begin_src shell
+  elpacman files magit
 #+end_src
 
 ** outdated

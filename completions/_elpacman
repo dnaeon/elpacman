@@ -19,6 +19,7 @@ _elpacman() {
         'search:Search the archives for packages'
         'info:Show detailed information about a package'
         'list:List installed packages'
+        'files:List the files owned by an installed package'
         'outdated:List packages for which an upgrade is available'
         'check:Check for broken packages'
         'repair:Reinstall broken packages'
@@ -51,6 +52,8 @@ _elpacman() {
                 info)
                     ;;
                 list)
+                    ;;
+                files)
                     ;;
                 outdated)
                     ;;
