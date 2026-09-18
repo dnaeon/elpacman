@@ -266,6 +266,30 @@ in the VC sense, and the up-to-date archive package is not listed."
   (elpacman-test--with-catalog
    (should (equal (elpacman--vc-upgradeable-names) '(vc-pkg)))))
 
+(ert-deftest elpacman-test-upgradeable-includes-vc ()
+  "`elpacman--upgradeable-names' unions archive and VC upgrades.
+This is the set `upgrade --vc', a named upgrade and `outdated' act on, so
+the version-controlled package must be present alongside the archive one.
+The set is computed here rather than delegated to
+`package--upgradeable-packages', whose VC-inclusion differs across Emacs
+versions (VC packages are included on Emacs 29 and 30 but excluded on
+Emacs 31); delegating would silently drop `vc-pkg' on Emacs 31.  The
+up-to-date archive package `same' is never listed."
+  (elpacman-test--with-catalog
+   (let ((names (elpacman--upgradeable-names)))
+     (should (memq 'arch names))
+     (should (memq 'vc-pkg names))
+     (should-not (memq 'same names)))))
+
+(ert-deftest elpacman-test-upgradeable-dedups-and-orders ()
+  "`elpacman--upgradeable-names' lists archive names first and de-duplicates.
+A VC package already reported by the archive half is not repeated, and
+the archive names keep their leading position."
+  (elpacman-test--with-catalog
+   (cl-letf (((symbol-function 'elpacman--archive-upgradeable-names)
+              (lambda () '(arch vc-pkg))))
+     (should (equal (elpacman--upgradeable-names) '(arch vc-pkg))))))
+
 (ert-deftest elpacman-test-upgrade-routes-with-vc-option ()
   "The `--vc' option routes upgrade to the VC-inclusive set.
 Without it the archive-only set is used; with it the full set is."
@@ -741,8 +765,41 @@ removed."
   ;; Missing or empty email falls back to just the name.
   (should (equal (elpacman--format-people '(("Ada" . ""))) "Ada"))
   (should (equal (elpacman--format-people '(("Ada"))) "Ada"))
+  ;; A single person is stored by Emacs as a bare `(NAME . EMAIL)' cons,
+  ;; not a one-element list; it must not be read as a two-element list.
+  (should (equal (elpacman--format-people '("Ada" . "ada@example.com"))
+                 "Ada <ada@example.com>"))
+  (should (equal (elpacman--format-people '("Ada" . "")) "Ada"))
   ;; Empty input yields nil, so callers can substitute a placeholder.
   (should-not (elpacman--format-people nil)))
+
+(ert-deftest elpacman-test-info-maintainer-uses-singular-key ()
+  "`info' reads the maintainer from the singular `:maintainer' key.
+Emacs stores the maintainer under `:maintainer' (singular); the plural
+`:maintainers' is never written.  A single maintainer is a bare cons, so
+the field must show that maintainer -- not fall through to the author,
+and not crash on the cons."
+  (let* ((desc (package-desc-create
+                :name 'demo :version '(1 0)
+                :summary "Demo"
+                :extras '((:authors ("Ada" . "ada@example.com"))
+                          (:maintainer "Bob" . "bob@example.com"))))
+         (package-alist (list (list 'demo desc)))
+         (package-archive-contents nil)
+         (output (elpacman-test-with-output (elpacman-cmd-info '("demo")))))
+    (should (string-search "Maintainer      : Bob <bob@example.com>" output))
+    (should-not (string-search "Maintainer      : Ada" output))))
+
+(ert-deftest elpacman-test-info-maintainer-falls-back-to-author ()
+  "`info' shows the author when no maintainer is recorded."
+  (let* ((desc (package-desc-create
+                :name 'demo :version '(1 0)
+                :summary "Demo"
+                :extras '((:authors ("Ada" . "ada@example.com")))))
+         (package-alist (list (list 'demo desc)))
+         (package-archive-contents nil)
+         (output (elpacman-test-with-output (elpacman-cmd-info '("demo")))))
+    (should (string-search "Maintainer      : Ada <ada@example.com>" output))))
 
 (ert-deftest elpacman-test-extra ()
   "`elpacman--extra' reads a keyword from a package's extras alist."
