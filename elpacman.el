@@ -928,7 +928,13 @@ error such as a missing package name."
     (let ((keywords (elpacman--extra desc :keywords)))
       (elpacman--out "Keywords        : %s\n"
                      (if keywords (mapconcat #'identity keywords "  ") "None")))
-    (let ((people (or (elpacman--format-people (elpacman--extra desc :maintainers))
+    ;; Emacs stores the maintainer under the singular `:maintainer' key;
+    ;; the plural `:maintainers' is only a read-side fallback in newer
+    ;; `describe-package' and is never written, so look under both, in
+    ;; that order.  Fall back to the authors when no maintainer is given.
+    (let ((people (or (elpacman--format-people
+                       (or (elpacman--extra desc :maintainer)
+                           (elpacman--extra desc :maintainers)))
                       (elpacman--format-people (elpacman--extra desc :authors)))))
       (elpacman--out "Maintainer      : %s\n" (or people "-")))
     (elpacman--out "Repository      : %s\n"
