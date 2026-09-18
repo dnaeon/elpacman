@@ -1187,14 +1187,13 @@ before removal, so that the disk space freed by each can be reported.
 ARGS are ignored.  Return 0 on success or when the user declines, 1 when
 a removal failed."
   (elpacman--out ":: Searching for unneeded packages...\n")
-  (let ((names (package--removable-packages)))
+  (let ((descs (package--removable-packages)))
     (cond
-     ((null names)
+     ((null descs)
       (elpacman--out " there is nothing to do\n")
       0)
      (t
-      (let ((descs (delq nil (mapcar #'elpacman--installed-desc names)))
-            (status 0))
+      (let ((status 0))
         (elpacman--preview descs "Total Removed Size:"
                            (apply #'+ (mapcar (lambda (d)
                                                 (elpacman--dir-size
