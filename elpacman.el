@@ -346,8 +346,21 @@ own comparison additionally factors in archive priority."
   "Return the names of all packages that can be upgraded, as symbols.
 Both archive-based and VC-installed packages are considered, mirroring
 the behaviour of the interactive `package-upgrade-all' command.  This is
-the set `elpacman upgrade --vc' acts on."
-  (package--upgradeable-packages))
+the set `elpacman upgrade --vc' acts on.
+
+The set is computed as the union of `elpacman--archive-upgradeable-names'
+and `elpacman--vc-upgradeable-names' rather than delegated to
+`package--upgradeable-packages', whose treatment of version-controlled
+packages is not stable across Emacs versions: it includes them on Emacs
+29 and 30 but excludes them on Emacs 31, which would silently drop VC
+packages from `upgrade --vc', a named VC upgrade and `outdated'.
+Archive-upgradeable names are listed first, preserving their order, with
+any VC package not already present appended."
+  (let ((names (elpacman--archive-upgradeable-names)))
+    (dolist (name (elpacman--vc-upgradeable-names))
+      (unless (memq name names)
+        (setq names (append names (list name)))))
+    names))
 
 (defun elpacman--vc-upgradeable-names ()
   "Return the names of upgradeable VC packages, as symbols.
@@ -883,16 +896,24 @@ DESC is a `package-desc'; KEY is a keyword such as `:url'."
   (and desc (cdr (assq key (package-desc-extras desc)))))
 
 (defun elpacman--format-people (people)
-  "Format PEOPLE, an alist of (NAME . EMAIL), as a display string.
-Return nil when PEOPLE is empty."
-  (when people
-    (mapconcat (lambda (person)
-                 (let ((name (car person))
-                       (email (cdr person)))
-                   (if (and email (not (string-empty-p email)))
-                       (format "%s <%s>" name email)
-                     name)))
-               people ", ")))
+  "Format PEOPLE as a display string, or nil when empty.
+PEOPLE is a package's `:authors' or `:maintainer' extras value.  Emacs
+stores these as a proper list of (NAME . EMAIL) conses when there are
+several, but as a single bare cons when there is only one -- see
+`package-buffer-info', which writes `(:maintainer NAME . EMAIL)' for a
+lone maintainer.  A bare cons is normalized to a one-element list before
+formatting, so the single case is not mistaken for a two-element list."
+  (let ((people (if (and (consp people) (not (consp (car people))))
+                    (list people)
+                  people)))
+    (when people
+      (mapconcat (lambda (person)
+                   (let ((name (car person))
+                         (email (cdr person)))
+                     (if (and email (stringp email) (not (string-empty-p email)))
+                         (format "%s <%s>" name email)
+                       name)))
+                 people ", "))))
 
 (defun elpacman--required-by (name)
   "Return the names of installed packages that depend on NAME, as symbols.
